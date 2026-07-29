@@ -13,18 +13,21 @@ h1{font-size:clamp(25px,5vw,42px);margin:0} .sub{color:var(--muted);margin-top:5
 .flash .word{font-size:clamp(30px,7vw,58px);font-weight:750;line-height:1.12} .flash .hint{color:var(--muted);margin-top:18px} .flash.revealed{background:linear-gradient(145deg,#f1fff9,#f7f5ff)}
 .actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:16px} .good{background:#e7f8f1;color:#08754c} .bad{background:#fff0f0;color:#b72d2d}
 .match-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px} .match-col{display:grid;gap:10px} .match-item{min-height:58px;text-align:left;border:2px solid transparent} .match-item.selected{border-color:var(--accent)} .match-item.matched{background:#e8f8f1;color:#08754c;opacity:.75} .match-item.wrong{background:#fff0f0;color:#b72d2d}
-.type-card{max-width:650px;margin:auto;text-align:center} .prompt{font-size:clamp(27px,5vw,44px);font-weight:750;margin:35px 0} .type-row{display:flex;gap:10px} .type-row input{flex:1;min-width:0;font-size:19px} .feedback{min-height:28px;margin:14px 0;font-weight:650} .ok{color:var(--ok)} .err{color:var(--bad)}
+.type-card{max-width:650px;margin:auto;text-align:center} .prompt{font-size:clamp(27px,5vw,44px);font-weight:750;margin:35px 0} .type-row{display:flex;gap:10px} .type-row input{flex:1;min-width:0;font-size:19px} .mic{white-space:nowrap}.mic.listening{background:#fff0f0;color:#b72d2d;animation:pulse 1s infinite}.speech-status{min-height:20px;margin-top:10px;color:var(--muted);font-size:13px}@keyframes pulse{50%{transform:scale(1.04)}} .feedback{min-height:28px;margin:14px 0;font-weight:650} .ok{color:var(--ok)} .err{color:var(--bad)}
 .list{display:grid;gap:8px;max-height:580px;overflow:auto} .row{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:12px;border-bottom:1px solid var(--line)} .row b{font-weight:700}
+.review-row{display:grid;grid-template-columns:1fr 1fr auto;gap:12px;align-items:center;padding:12px;border-bottom:1px solid var(--line)} .remove-review{background:#fff0f0;color:#b72d2d;white-space:nowrap}
 .small{font-size:13px;color:var(--muted)} .hidden{display:none!important} footer{text-align:center;color:var(--muted);font-size:13px;margin:18px}
-@media(max-width:650px){.match-grid{grid-template-columns:1fr}.row{grid-template-columns:1fr}.type-row{flex-direction:column}}
+@media(max-width:650px){.match-grid{grid-template-columns:1fr}.row,.review-row{grid-template-columns:1fr}.type-row{flex-direction:column}}
 </style></head>
 <body><div class="app"><header><div><h1>English Cards</h1><div class="sub">Карточки, пары и ввод слов из твоего файла</div></div><div class="stats" id="stats"></div></header>
-<div class="tabs"><button data-tab="flash" class="active">Карточки</button><button data-tab="match">Соединить пары</button><button data-tab="type">Вписать слово</button><button data-tab="list">Все слова</button></div>
+<div class="tabs"><button data-tab="flash" class="active">Карточки</button><button data-tab="match">Соединить пары</button><button data-tab="type">Вписать слово</button><button data-tab="review">На повторение</button><button data-tab="knownList">Знаю</button><button data-tab="list">Все слова</button></div>
 <section class="panel">
-<div class="controls"><label>День занятия <select id="day"><option value="all">Все дни</option></select></label><label>Направление <select id="direction"><option value="mix">Смешанное</option><option value="en-ru">English → Русский</option><option value="ru-en">Русский → English</option></select></label><label>Слова <select id="scope"><option value="all">Все</option><option value="hard">Только сложные</option></select></label><button id="reset">Сбросить прогресс</button></div>
+<div class="controls"><label>День занятия <select id="day"><option value="all">Все дни</option></select></label><label>Направление <select id="direction"><option value="mix">Смешанное</option><option value="en-ru">English → Русский</option><option value="ru-en">Русский → English</option></select></label><label>Слова <select id="scope"><option value="all">Все</option><option value="hard">Только на повторении</option><option value="known">Только изученные</option></select></label><button id="reset">Сбросить прогресс</button></div>
 <div id="flashView"><div class="flash" id="flash"><div><div class="word" id="flashWord"></div><div class="hint" id="flashHint">Нажми на карточку, чтобы увидеть ответ</div></div></div><div class="actions"><button class="bad" id="again">Ещё учить</button><button class="primary" id="next">Следующее</button><button class="good" id="known">Знаю</button></div></div>
 <div id="matchView" class="hidden"><div class="small">Выбери слово слева и перевод справа. После всех пар появится новый раунд.</div><div class="match-grid" style="margin-top:16px"><div class="match-col" id="leftCol"></div><div class="match-col" id="rightCol"></div></div><div class="actions"><button class="primary" id="newMatch">Новый раунд</button></div></div>
-<div id="typeView" class="hidden"><div class="type-card"><div class="small" id="typeLabel"></div><div class="prompt" id="typePrompt"></div><div class="type-row"><input id="typeInput" autocomplete="off" placeholder="Введи ответ"><button class="primary" id="check">Проверить</button></div><div class="feedback" id="feedback"></div><button id="typeNext">Следующее слово</button></div></div>
+<div id="typeView" class="hidden"><div class="type-card"><div class="small" id="typeLabel"></div><div class="prompt" id="typePrompt"></div><div class="type-row"><input id="typeInput" autocomplete="off" placeholder="Введи ответ"><button class="mic" id="speak" type="button" aria-label="Произнести ответ">🎤 Сказать</button><button class="primary" id="check">Проверить</button></div><div class="speech-status" id="speechStatus"></div><div class="feedback" id="feedback"></div><button id="typeNext">Следующее слово</button></div></div>
+<div id="reviewView" class="hidden"><div class="small">Сюда автоматически попадают слова, в которых была ошибка. Правильные ответы не удаляют их автоматически — удалить слово можешь только ты.</div><div class="actions" style="justify-content:flex-start"><button class="primary" id="practiceReview">Практиковать эти слова</button></div><div class="list" id="reviewList"></div></div>
+<div id="knownListView" class="hidden"><div class="small">Здесь собраны слова, которые ты отметила как знакомые или на которые ответила правильно. Их можно повторять в любом режиме.</div><div class="actions" style="justify-content:flex-start"><button class="primary" id="practiceKnown">Практиковать изученные</button></div><div class="list" id="knownList"></div></div>
 <div id="listView" class="hidden"><input id="search" placeholder="Поиск слова или перевода" style="width:100%;margin-bottom:14px"><div class="list" id="wordList"></div></div>
 </section><footer>Прогресс хранится только в этом браузере.</footer></div>
 <script>
@@ -33,25 +36,65 @@ const DAYS=[{"id":1,"label":"1. May 26"},{"id":2,"label":"2. May 21"},{"id":3,"l
 const state={known:new Set(JSON.parse(localStorage.getItem('knownWords')||'[]')),hard:new Set(JSON.parse(localStorage.getItem('hardWords')||'[]')),current:null,revealed:false,match:null,type:null};
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const shuffle=a=>{a=[...a];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
-function pool(){let p=[...WORDS],day=$('#day').value;if(day!=='all')p=p.filter(w=>(w.days||[]).includes(+day));if($('#scope').value==='hard')p=p.filter(w=>state.hard.has(w.en));return p}
+function pool(){let p=[...WORDS],day=$('#day').value;if(day!=='all')p=p.filter(w=>(w.days||[]).includes(+day));if($('#scope').value==='hard')p=p.filter(w=>state.hard.has(w.en));if($('#scope').value==='known')p=p.filter(w=>state.known.has(w.en));return p}
 function dir(){let d=$('#direction').value;return d==='mix'?(Math.random()<.5?'en-ru':'ru-en'):d}
 function save(){localStorage.setItem('knownWords',JSON.stringify([...state.known]));localStorage.setItem('hardWords',JSON.stringify([...state.hard]));stats()}
 function stats(){$('#stats').textContent=`${WORDS.length} слов · знаю ${state.known.size} · повторить ${state.hard.size}`}
 function nextFlash(){let p=pool();if(!p.length){state.current=null;$('#flashWord').textContent='В этом разделе нет слов';$('#flashHint').textContent='Выбери другой день или режим «Все слова»';return}state.current=p[Math.floor(Math.random()*p.length)];state.revealed=false;renderFlash()}
 function renderFlash(){let d=dir();state.flashDir=d;$('#flashWord').textContent=d==='en-ru'?state.current.en:state.current.ru;$('#flashHint').textContent='Нажми на карточку, чтобы увидеть ответ';$('#flash').classList.remove('revealed')}
 $('#flash').onclick=()=>{if(!state.revealed){state.revealed=true;$('#flashWord').textContent=state.flashDir==='en-ru'?state.current.ru:state.current.en;$('#flashHint').textContent='Ответ';$('#flash').classList.add('revealed')}};
-$('#next').onclick=nextFlash;$('#known').onclick=()=>{state.known.add(state.current.en);state.hard.delete(state.current.en);save();nextFlash()};$('#again').onclick=()=>{state.hard.add(state.current.en);state.known.delete(state.current.en);save();nextFlash()};
+$('#next').onclick=nextFlash;$('#known').onclick=()=>{state.known.add(state.current.en);save();nextFlash()};$('#again').onclick=()=>{state.hard.add(state.current.en);state.known.delete(state.current.en);save();renderReview();renderKnown();nextFlash()};
 function newMatch(){let items=shuffle(pool()).slice(0,6);if(!items.length){$('#leftCol').innerHTML='<div class="small">Для этого дня слов не найдено.</div>';$('#rightCol').innerHTML='';return}state.match={items,left:null,right:null,done:new Set()};$('#leftCol').innerHTML=items.map((w,i)=>`<button class="match-item" data-side="l" data-i="${i}">${w.en}</button>`).join('');let r=shuffle(items.map((w,i)=>({w,i})));$('#rightCol').innerHTML=r.map(x=>`<button class="match-item" data-side="r" data-i="${x.i}">${x.w.ru}</button>`).join('');$$('.match-item').forEach(b=>b.onclick=()=>chooseMatch(b))}
-function chooseMatch(b){let side=b.dataset.side,i=+b.dataset.i;if(state.match.done.has(i))return;$$(`[data-side="${side}"]`).forEach(x=>x.classList.remove('selected'));b.classList.add('selected');state.match[side==='l'?'left':'right']=i;if(state.match.left!==null&&state.match.right!==null){let ok=state.match.left===state.match.right;let pair=$$(`[data-i="${state.match.left}"], [data-i="${state.match.right}"]`);if(ok){$$(`[data-i="${state.match.left}"]`).forEach(x=>x.classList.add('matched'));state.match.done.add(state.match.left)}else{b.classList.add('wrong');setTimeout(()=>$$('.match-item').forEach(x=>x.classList.remove('wrong','selected')),500)}state.match.left=state.match.right=null;if(state.match.done.size===state.match.items.length)setTimeout(newMatch,700)}}
+function chooseMatch(b){let side=b.dataset.side,i=+b.dataset.i;if(state.match.done.has(i))return;$$(`[data-side="${side}"]`).forEach(x=>x.classList.remove('selected'));b.classList.add('selected');state.match[side==='l'?'left':'right']=i;if(state.match.left!==null&&state.match.right!==null){let ok=state.match.left===state.match.right;let pair=$$(`[data-i="${state.match.left}"], [data-i="${state.match.right}"]`);if(ok){$$(`[data-i="${state.match.left}"]`).forEach(x=>x.classList.add('matched'));state.match.done.add(state.match.left)}else{const wrongWord=state.match.items[state.match.left];if(wrongWord){state.hard.add(wrongWord.en);state.known.delete(wrongWord.en);save();renderReview();renderKnown()}b.classList.add('wrong');setTimeout(()=>$$('.match-item').forEach(x=>x.classList.remove('wrong','selected')),500)}state.match.left=state.match.right=null;if(state.match.done.size===state.match.items.length)setTimeout(newMatch,700)}}
 $('#newMatch').onclick=newMatch;
-function newType(){let p=pool();if(!p.length){$('#typePrompt').textContent='Для этого дня слов не найдено';$('#typeLabel').textContent='Выбери другой день';return}let w=p[Math.floor(Math.random()*p.length)],d=dir();state.type={w,d};$('#typeLabel').textContent=d==='en-ru'?'Напиши перевод по-русски':'Напиши слово по-английски';$('#typePrompt').textContent=d==='en-ru'?w.en:w.ru;$('#typeInput').value='';$('#feedback').textContent='';$('#typeInput').focus()}
+function newType(){stopListening();let p=pool();if(!p.length){$('#typePrompt').textContent='Для этого дня слов не найдено';$('#typeLabel').textContent='Выбери другой день';return}let w=p[Math.floor(Math.random()*p.length)],d=dir();state.type={w,d};$('#typeLabel').textContent=d==='en-ru'?'Напиши или произнеси перевод по-русски':'Напиши или произнеси слово по-английски';$('#typePrompt').textContent=d==='en-ru'?w.en:w.ru;$('#typeInput').value='';$('#feedback').textContent='';$('#speechStatus').textContent='';$('#typeInput').focus()}
 function norm(s){return s.toLowerCase().replace(/^to\s+/,'').replace(/[()]/g,'').replace(/ё/g,'е').replace(/[^a-zа-я0-9 ]/gi,' ').replace(/\s+/g,' ').trim()}
-function checkType(){let ans=$('#typeInput').value.trim(),correct=state.type.d==='en-ru'?state.type.w.ru:state.type.w.en;let variants=correct.split(/[;,\/]|\s=\s/).map(norm);let ok=variants.some(v=>v&& (norm(ans)===v || (v.length>5&&norm(ans).includes(v))));$('#feedback').className='feedback '+(ok?'ok':'err');$('#feedback').textContent=ok?'Верно!':`Ответ: ${correct}`;if(ok){state.known.add(state.type.w.en);state.hard.delete(state.type.w.en)}else{state.hard.add(state.type.w.en)}save()}
+function checkType(){let ans=$('#typeInput').value.trim(),correct=state.type.d==='en-ru'?state.type.w.ru:state.type.w.en;let variants=correct.split(/[;,\/]|\s=\s/).map(norm);let ok=variants.some(v=>v&& (norm(ans)===v || (v.length>5&&norm(ans).includes(v))));$('#feedback').className='feedback '+(ok?'ok':'err');$('#feedback').textContent=ok?'Верно!':`Ответ: ${correct}`;if(ok){state.known.add(state.type.w.en)}else{state.hard.add(state.type.w.en)}save();renderReview();renderKnown()}
+
+const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+let recognition=null,listening=false;
+function setListening(on){listening=on;$('#speak').classList.toggle('listening',on);$('#speak').textContent=on?'⏹ Слушаю…':'🎤 Сказать'}
+function stopListening(){if(recognition&&listening){try{recognition.stop()}catch(e){}}setListening(false)}
+function startListening(){
+  if(!SpeechRecognition){$('#speechStatus').textContent='Голосовой ввод не поддерживается этим браузером. Попробуй Chrome на Android или компьютере.';return}
+  if(listening){stopListening();return}
+  if(!state.type)return;
+  recognition=new SpeechRecognition();
+  recognition.lang=state.type.d==='en-ru'?'ru-RU':'en-US';
+  recognition.interimResults=false;
+  recognition.maxAlternatives=3;
+  recognition.continuous=false;
+  recognition.onstart=()=>{$('#speechStatus').textContent=state.type.d==='en-ru'?'Говори перевод по-русски…':'Говори слово по-английски…';setListening(true)};
+  recognition.onresult=e=>{let text=e.results[0][0].transcript.trim();$('#typeInput').value=text;$('#speechStatus').textContent=`Распознано: ${text}`;setListening(false);checkType()};
+  recognition.onerror=e=>{let messages={"not-allowed":'Разреши браузеру доступ к микрофону.',"no-speech":'Речь не распознана. Нажми и попробуй ещё раз.',"audio-capture":'Микрофон не найден.',"network":'Не удалось распознать речь из-за ошибки сети.'};$('#speechStatus').textContent=messages[e.error]||'Не удалось распознать речь. Попробуй ещё раз.';setListening(false)};
+  recognition.onend=()=>setListening(false);
+  try{recognition.start()}catch(e){$('#speechStatus').textContent='Не удалось включить микрофон. Попробуй ещё раз.';setListening(false)}
+}
+$('#speak').onclick=startListening;
+
 $('#check').onclick=checkType;$('#typeInput').addEventListener('keydown',e=>{if(e.key==='Enter')checkType()});$('#typeNext').onclick=newType;
+function renderReview(){
+  const day=$('#day').value;
+  const items=WORDS.filter(w=>state.hard.has(w.en)&&(day==='all'||(w.days||[]).includes(+day)));
+  $('#reviewList').innerHTML=items.length?items.map(w=>`<div class="review-row"><b>${w.en}</b><span>${w.ru}</span><button class="remove-review" data-remove="${encodeURIComponent(w.en)}">Удалить</button></div>`).join(''):'<div class="small" style="padding:18px 0">Список повторения пока пуст.</div>';
+  $$('[data-remove]').forEach(btn=>btn.onclick=()=>{const en=decodeURIComponent(btn.dataset.remove);state.hard.delete(en);save();renderReview();if($('#scope').value==='hard')nextFlash()});
+}
+$('#practiceReview').onclick=()=>{$('#scope').value='hard';const target=$('[data-tab="flash"]');target.click()};
+
+function renderKnown(){
+  let items=WORDS.filter(w=>state.known.has(w.en));
+  const day=$('#day').value;
+  if(day!=='all')items=items.filter(w=>(w.days||[]).includes(+day));
+  items.sort((a,b)=>a.en.localeCompare(b.en));
+  $('#knownList').innerHTML=items.length?items.map(w=>`<div class="review-row"><b>${w.en}</b><span>${w.ru}</span><button class="remove-review" data-remove-known="${encodeURIComponent(w.en)}">Убрать из изученных</button></div>`).join(''):'<div class="small" style="padding:18px 0">Список изученных слов пока пуст.</div>';
+  $$('[data-remove-known]').forEach(btn=>btn.onclick=()=>{const en=decodeURIComponent(btn.dataset.removeKnown);state.known.delete(en);save();renderKnown();if($('#scope').value==='known')nextFlash()});
+}
+$('#practiceKnown').onclick=()=>{$('#scope').value='known';const target=$('[data-tab="flash"]');target.click()};
+
 function renderList(q=''){q=norm(q);let day=$('#day').value;$('#wordList').innerHTML=WORDS.filter(w=>(day==='all'||(w.days||[]).includes(+day))&&(!q||norm(w.en+' '+w.ru).includes(q))).map(w=>`<div class="row"><b>${w.en}</b><span>${w.ru}</span></div>`).join('')}
 $('#search').oninput=e=>renderList(e.target.value);
-$$('[data-tab]').forEach(b=>b.onclick=()=>{$$('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));['flash','match','type','list'].forEach(v=>$('#'+v+'View').classList.toggle('hidden',v!==b.dataset.tab));if(b.dataset.tab==='match')newMatch();if(b.dataset.tab==='type')newType();if(b.dataset.tab==='list')renderList()});
+$$('[data-tab]').forEach(b=>b.onclick=()=>{$$('[data-tab]').forEach(x=>x.classList.toggle('active',x===b));['flash','match','type','review','knownList','list'].forEach(v=>$('#'+v+'View').classList.toggle('hidden',v!==b.dataset.tab));if(b.dataset.tab==='match')newMatch();if(b.dataset.tab==='type')newType();if(b.dataset.tab==='review')renderReview();if(b.dataset.tab==='knownList')renderKnown();if(b.dataset.tab==='list')renderList()});
 $('#day').innerHTML='<option value="all">Все дни</option>'+DAYS.map(d=>`<option value="${d.id}">${d.label}</option>`).join('');
-$('#reset').onclick=()=>{if(confirm('Сбросить весь прогресс?')){state.known.clear();state.hard.clear();save()}};$('#direction').onchange=()=>{nextFlash()};$('#scope').onchange=()=>{nextFlash()};$('#day').onchange=()=>{nextFlash();if(!$('#matchView').classList.contains('hidden'))newMatch();if(!$('#typeView').classList.contains('hidden'))newType();if(!$('#listView').classList.contains('hidden'))renderList($('#search').value)};
-stats();nextFlash();
+$('#reset').onclick=()=>{if(confirm('Сбросить весь прогресс?')){state.known.clear();state.hard.clear();save();renderReview();renderKnown()}};$('#direction').onchange=()=>{nextFlash()};$('#scope').onchange=()=>{nextFlash()};$('#day').onchange=()=>{nextFlash();if(!$('#matchView').classList.contains('hidden'))newMatch();if(!$('#typeView').classList.contains('hidden'))newType();if(!$('#reviewView').classList.contains('hidden'))renderReview();if(!$('#knownListView').classList.contains('hidden'))renderKnown();if(!$('#listView').classList.contains('hidden'))renderList($('#search').value)};
+stats();renderReview();nextFlash();
 </script></body></html>
