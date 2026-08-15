@@ -611,7 +611,8 @@ export default function Home() {
               </div>
             </div>
             <div className="search-row">
-              <input className="search" type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Поиск по словарю" aria-label="Поиск по словарю" />
+              <span className="material-symbols-outlined search-icon" aria-hidden="true">search</span>
+              <input className="search" type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Например: обстоятельства" aria-label="Поиск по слову или переводу" />
             </div>
             <nav className="quick-add-row" aria-label="Способы добавления слов">
               <MenuSelect className="sort-menu quick-sort-menu" ariaLabel="Сортировка" value={sortOrder} options={[{ value: "newest", label: "Сначала новые" }, { value: "oldest", label: "Сначала старые" }, { value: "alpha", label: "По алфавиту" }]} onChange={(value) => setSortOrder(value as "newest" | "oldest" | "alpha")} />

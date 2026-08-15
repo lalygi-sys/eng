@@ -132,7 +132,7 @@ button{color:inherit}
 .export-menu button:hover{background:var(--green-soft)}
 .export-menu button b{font-size:10px;color:var(--ink)}
 .export-menu button span{font-size:8px;line-height:1.35;color:var(--muted)}
-.search-row{display:block;margin-bottom:10px}
+.search-row{position:relative;display:block;margin-bottom:10px}
 .search-row .search{width:100%}
 .quick-add-row{min-height:32px;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:14px}
 .quick-add-actions{min-width:0;display:flex;align-items:center;justify-content:flex-end;gap:6px;flex-wrap:wrap}
@@ -151,9 +151,9 @@ button{color:inherit}
 .word-filter-chips button.active.error{border-color:#e5b5af;background:var(--red-soft);color:var(--red)}
 .word-filter-chips b{min-width:19px;height:19px;border-radius:99px;background:#eef0ed;display:grid;place-items:center;font-size:9px}
 .word-filter-chips button.active b{background:#fff}
-.search{height:42px;border:1px solid var(--line);border-radius:9px;background:#fff;padding:0 10px;color:#343b37;font-size:12px;font-weight:450}
-.search{padding:0 12px}
+.search{height:42px;border:1px solid var(--line);border-radius:9px;background:#fff;padding:0 12px 0 40px;color:#343b37;font-size:12px;font-weight:450}
 .search::placeholder{color:#8d948f;font-size:12px;font-weight:450;opacity:1}
+.search-icon{position:absolute;z-index:1;left:13px;top:50%;width:18px;height:18px;display:grid;place-items:center;color:#7d8781;font-size:18px!important;line-height:18px!important;font-variation-settings:"FILL" 0,"wght" 400,"GRAD" 0,"opsz" 24!important;transform:translateY(-50%);pointer-events:none}
 .menu-select{position:relative;min-width:0;color:#343b37}
 .menu-select[open]{z-index:35}
 .menu-select>summary{height:38px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:0 32px 0 11px;display:flex;align-items:center;list-style:none;position:relative;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;cursor:pointer}
