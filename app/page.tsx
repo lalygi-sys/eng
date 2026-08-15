@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 type WordStatus = "learning" | "known" | "error";
 type Word = {
@@ -99,6 +99,30 @@ function detectLanguage(value: string) {
   return "English";
 }
 
+const translationLanguageCode: Record<string, string> = {
+  English: "en",
+  Русский: "ru",
+  Deutsch: "de",
+  Español: "es",
+  Français: "fr",
+  ქართული: "ka",
+};
+
+async function translateText(value: string, sourceLanguage: string, targetLanguage: string) {
+  const source = translationLanguageCode[sourceLanguage] ?? "auto";
+  const target = translationLanguageCode[targetLanguage] ?? "ru";
+  if (source === target) return value;
+  const params = new URLSearchParams({ client: "gtx", sl: source, tl: target, dt: "t", q: value });
+  try {
+    const response = await fetch(`https://translate.googleapis.com/translate_a/single?${params.toString()}`);
+    if (!response.ok) return "";
+    const payload = await response.json() as Array<Array<Array<string>>>;
+    return payload[0]?.map((segment) => segment[0] ?? "").join("").trim() ?? "";
+  } catch {
+    return "";
+  }
+}
+
 function normalizeDate(value: string, fallback = TODAY) {
   const clean = value.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
@@ -117,11 +141,10 @@ function parsePairs(text: string, fallbackDate: string, sourceLanguage: string, 
     let parts = line.split(/\t|;|\s+[—–→=]\s+|\s+-\s+/).map((item) => item.replace(/^"|"$/g, "").trim()).filter(Boolean);
     if (parts.length < 2 && line.includes(",")) parts = line.split(",").map((item) => item.replace(/^"|"$/g, "").trim()).filter(Boolean);
     if (parts.length < 2 && line.includes(":")) parts = line.split(/:\s+/).map((item) => item.trim()).filter(Boolean);
-    if (parts.length < 2) continue;
     let rowDate = currentDate;
     if (/^(\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4})$/.test(parts[0])) rowDate = normalizeDate(parts.shift()!, currentDate);
     const source = parts.shift()!;
-    const target = parts.join("; ");
+    const target = parts.join("; ").trim();
     if (/^(word|слово|english)$/i.test(source) && /^(translation|перевод|russian)$/i.test(target)) continue;
     result.push({ id: uid(), source, target, addedAt: rowDate, sourceLang: sourceLanguage === LANGUAGES[0] ? detectLanguage(source) : sourceLanguage, targetLang: targetLanguage === LANGUAGES[0] ? detectLanguage(target) : targetLanguage, status: "learning", errorCount: 0 });
   }
@@ -192,9 +215,6 @@ export default function Home() {
   const [words, setWords] = useState<Word[]>(starterWords);
   const [dictionaries, setDictionaries] = useState<Dictionary[]>(starterDictionaries);
   const [selectedDictionaryId, setSelectedDictionaryId] = useState(DEFAULT_DICTIONARY_ID);
-  const [dictionaryOpen, setDictionaryOpen] = useState(false);
-  const [dictionarySourceLang, setDictionarySourceLang] = useState("English");
-  const [dictionaryTargetLang, setDictionaryTargetLang] = useState("Русский");
   const [hydrated, setHydrated] = useState(false);
   const [view, setView] = useState<View>("library");
   const [scope, setScope] = useState<Scope>("all");
@@ -205,12 +225,17 @@ export default function Home() {
   const [contextWordFilter, setContextWordFilter] = useState<ContextWordFilter>("day");
   const [addOpen, setAddOpen] = useState(false);
   const [addMode, setAddMode] = useState<AddMode>("paste");
+  const [addTargetId, setAddTargetId] = useState<string | "new">(DEFAULT_DICTIONARY_ID);
+  const [newSourceLang, setNewSourceLang] = useState("English");
+  const [newTargetLang, setNewTargetLang] = useState("Русский");
   const [bulkText, setBulkText] = useState("");
   const [addDate, setAddDate] = useState(TODAY);
-  const [sourceLang, setSourceLang] = useState("Автоопределение");
-  const [targetLang, setTargetLang] = useState("Автоопределение");
+  const [addDateOpen, setAddDateOpen] = useState(false);
+  const [addCalendarMonth, setAddCalendarMonth] = useState(() => new Date(`${TODAY}T12:00:00`));
   const [singleSource, setSingleSource] = useState("");
   const [singleTarget, setSingleTarget] = useState("");
+  const [previewWords, setPreviewWords] = useState<Word[]>([]);
+  const [isTranslatingPreview, setIsTranslatingPreview] = useState(false);
   const [importStatus, setImportStatus] = useState("");
   const [fileName, setFileName] = useState("");
   const [editId, setEditId] = useState<string | null>(null);
@@ -251,9 +276,13 @@ export default function Home() {
   useEffect(() => { if (hydrated) try { localStorage.setItem("lingua-selected-dictionary-v1", selectedDictionaryId); } catch { /* storage unavailable */ } }, [selectedDictionaryId, hydrated]);
 
   const currentDictionary = dictionaries.find((dictionary) => dictionary.id === selectedDictionaryId) ?? dictionaries[0] ?? starterDictionaries[0];
+  const addTargetDictionary = addTargetId === "new" ? null : dictionaries.find((dictionary) => dictionary.id === addTargetId) ?? currentDictionary;
+  const isCreatingDictionary = addTargetId === "new";
+  const addSourceLang = isCreatingDictionary ? newSourceLang : addTargetDictionary!.sourceLang;
+  const addTargetLang = isCreatingDictionary ? newTargetLang : addTargetDictionary!.targetLang;
+  const newDictionaryLanguagesInvalid = isCreatingDictionary && newSourceLang === newTargetLang;
   const dictionaryWords = words.filter((word) => (word.dictionaryId ?? DEFAULT_DICTIONARY_ID) === currentDictionary.id);
   const errors = dictionaryWords.filter((word) => word.status === "error" || word.errorCount > 0);
-  const cleanWords = dictionaryWords.filter((word) => matchesScope(word, "clean"));
   const knownWords = dictionaryWords.filter((word) => word.status === "known");
   const isTraining = view === "cards" || view === "match" || view === "type";
   const dateCounts = useMemo(() => dictionaryWords.reduce<Record<string, number>>((acc, word) => ({ ...acc, [word.addedAt]: (acc[word.addedAt] ?? 0) + 1 }), {}), [dictionaryWords]);
@@ -279,41 +308,87 @@ export default function Home() {
   const similarWords = useMemo(() => normalizedSearch && !hasDictionaryMatch ? findSimilarWords(search, dictionaryWords) : [], [search, dictionaryWords, normalizedSearch, hasDictionaryMatch]);
   const practiceWords = filteredWords;
   const current = practiceWords[cardIndex % Math.max(practiceWords.length, 1)];
-  const previewWords = useMemo(() => parsePairs(bulkText, addDate, sourceLang, targetLang), [bulkText, addDate, sourceLang, targetLang]);
+  const parsedPreviewWords = useMemo(() => parsePairs(bulkText, addDate, addSourceLang, addTargetLang), [bulkText, addDate, addSourceLang, addTargetLang]);
+  const previewDictionary = addTargetId === "new"
+    ? dictionaries.find((dictionary) => dictionary.sourceLang === newSourceLang && dictionary.targetLang === newTargetLang)
+    : addTargetDictionary;
+  const previewDictionaryWords = previewDictionary
+    ? words.filter((word) => (word.dictionaryId ?? DEFAULT_DICTIONARY_ID) === previewDictionary.id)
+    : [];
+  const existingPreviewSources = new Set(previewDictionaryWords.map((word) => normalizeForMatch(word.source)));
+  const importablePreviewWords = previewWords.filter((word) => word.source.trim() && word.target.trim() && !existingPreviewSources.has(normalizeForMatch(word.source)));
   const matchWords = practiceWords.slice(0, 6);
   const matchTranslations = useMemo(() => [...matchWords].sort((a, b) => a.target.localeCompare(b.target)), [matchWords]);
 
-  const calendarCells = useMemo(() => {
-    const year = calendarMonth.getFullYear(); const month = calendarMonth.getMonth();
-    const firstWeekDay = (new Date(year, month, 1).getDay() + 6) % 7;
-    const days = new Date(year, month + 1, 0).getDate();
-    return Array.from({ length: 42 }, (_, index) => {
-      const day = index - firstWeekDay + 1;
-      if (day < 1 || day > days) return null;
-      const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      return { day, iso, count: dateCounts[iso] ?? 0 };
-    });
-  }, [calendarMonth, dateCounts]);
+  const calendarCells = useMemo(() => buildMonthCells(calendarMonth, dateCounts), [calendarMonth, dateCounts]);
+  const addCalendarCells = useMemo(() => buildMonthCells(addCalendarMonth), [addCalendarMonth]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setPreviewWords(parsedPreviewWords);
+      const missing = parsedPreviewWords.filter((word) => !word.target.trim());
+      if (!missing.length) {
+        setIsTranslatingPreview(false);
+        return;
+      }
+      setIsTranslatingPreview(true);
+      const translations = await Promise.all(missing.map(async (word) => ({
+        id: word.id,
+        target: await translateText(word.source, addSourceLang, addTargetLang),
+      })));
+      if (cancelled) return;
+      const translatedById = new Map(translations.map((translation) => [translation.id, translation.target]));
+      setPreviewWords((current) => current.map((word) => {
+        if (word.target.trim()) return word;
+        return { ...word, target: translatedById.get(word.id) ?? "" };
+      }));
+      setIsTranslatingPreview(false);
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [parsedPreviewWords, addSourceLang, addTargetLang]);
 
   function updateWord(id: string, patch: Partial<Word>) { setWords((items) => items.map((word) => word.id === id ? { ...word, ...patch } : word)); }
+  function updatePreviewWord(id: string, patch: Pick<Partial<Word>, "source" | "target">) {
+    setPreviewWords((items) => items.map((word) => word.id === id ? { ...word, ...patch } : word));
+  }
   function selectDictionary(dictionary: Dictionary) {
     setSelectedDictionaryId(dictionary.id);
-    setSourceLang(dictionary.sourceLang);
-    setTargetLang(dictionary.targetLang);
     setSelectedDates([]);
     setSearch("");
     setScope("all");
     resetPracticeState();
     setView("library");
   }
-  function createDictionary() {
-    if (dictionarySourceLang === dictionaryTargetLang) return;
-    const existing = dictionaries.find((dictionary) => dictionary.sourceLang === dictionarySourceLang && dictionary.targetLang === dictionaryTargetLang);
-    if (existing) { selectDictionary(existing); setDictionaryOpen(false); return; }
-    const dictionary = { id: uid(), sourceLang: dictionarySourceLang, targetLang: dictionaryTargetLang };
-    setDictionaries((items) => [...items, dictionary]);
-    selectDictionary(dictionary);
-    setDictionaryOpen(false);
+  function openAdd(mode: AddMode = "paste", target: "current" | "new" = "current") {
+    setAddMode(mode);
+    setAddDateOpen(false);
+    setImportStatus("");
+    if (target === "new") {
+      setAddTargetId("new");
+      setNewSourceLang("English");
+      setNewTargetLang("Русский");
+    } else {
+      setAddTargetId(currentDictionary.id);
+    }
+    setAddOpen(true);
+  }
+  function closeAdd() {
+    setAddDateOpen(false);
+    setAddOpen(false);
+    setImportStatus("");
+  }
+  function resolveAddDictionary(): Dictionary | null {
+    if (isCreatingDictionary) {
+      if (newSourceLang === newTargetLang) return null;
+      const existing = dictionaries.find((dictionary) => dictionary.sourceLang === newSourceLang && dictionary.targetLang === newTargetLang);
+      if (existing) return existing;
+      return { id: uid(), sourceLang: newSourceLang, targetLang: newTargetLang };
+    }
+    return addTargetDictionary;
   }
   function setSelectedDate(date: string | null) { setSelectedDates(date ? [date] : []); }
   function toggleSelectedDate(date: string) {
@@ -345,13 +420,38 @@ export default function Home() {
   }
   function addParsed(items: Word[]) {
     if (!items.length) { setImportStatus("Не удалось найти пары. Используйте формат: word — перевод"); return; }
-    setWords((currentWords) => [...items.map((word) => ({ ...word, dictionaryId: currentDictionary.id })), ...currentWords]);
-    setImportStatus(`Добавлено слов: ${items.length}`); setBulkText(""); setFileName("");
-    window.setTimeout(() => { setAddOpen(false); setImportStatus(""); }, 700);
+    if (newDictionaryLanguagesInvalid) { setImportStatus("Выберите два разных языка для словаря"); return; }
+    const dictionary = resolveAddDictionary();
+    if (!dictionary) { setImportStatus("Выберите словарь"); return; }
+    const existingSources = new Set(
+      words
+        .filter((word) => (word.dictionaryId ?? DEFAULT_DICTIONARY_ID) === dictionary.id)
+        .map((word) => normalizeForMatch(word.source)),
+    );
+    const incomingSources = new Set<string>();
+    const importableItems = items.filter((word) => {
+      const source = normalizeForMatch(word.source);
+      if (!source || !word.target.trim() || existingSources.has(source) || incomingSources.has(source)) return false;
+      incomingSources.add(source);
+      return true;
+    });
+    if (!importableItems.length) {
+      setImportStatus("Новых слов для добавления нет. Проверьте переводы и отмеченные совпадения.");
+      return;
+    }
+    const isNew = !dictionaries.some((item) => item.id === dictionary.id);
+    if (isNew) setDictionaries((items) => [...items, dictionary]);
+    setWords((currentWords) => [...importableItems.map((word) => ({ ...word, dictionaryId: dictionary.id, sourceLang: dictionary.sourceLang, targetLang: dictionary.targetLang })), ...currentWords]);
+    selectDictionary(dictionary);
+    setAddTargetId(dictionary.id);
+    setImportStatus(isNew ? `Словарь создан. Добавлено слов: ${importableItems.length}` : `Добавлено слов: ${importableItems.length}`);
+    setBulkText("");
+    setFileName("");
+    window.setTimeout(() => { closeAdd(); }, 700);
   }
   function addSingle() {
     if (!singleSource.trim() || !singleTarget.trim()) { setImportStatus("Заполните слово и перевод"); return; }
-    addParsed(parsePairs(`${singleSource.trim()} — ${singleTarget.trim()}`, addDate, sourceLang, targetLang));
+    addParsed(parsePairs(`${singleSource.trim()} — ${singleTarget.trim()}`, addDate, addSourceLang, addTargetLang));
     setSingleSource(""); setSingleTarget("");
   }
   async function extractFile(file: File) {
@@ -379,8 +479,8 @@ export default function Home() {
         await worker.terminate();
       } else throw new Error("unsupported");
       setBulkText(text); setAddMode("paste");
-      const count = parsePairs(text, addDate, sourceLang, targetLang).length;
-      setImportStatus(count ? `Распознано пар: ${count}. Проверьте список перед добавлением.` : "Текст извлечён, но пары не найдены. Проверьте разделители.");
+      const count = parsePairs(text, addDate, addSourceLang, addTargetLang).length;
+      setImportStatus(count ? `Распознано строк: ${count}. Проверьте слова и переводы перед добавлением.` : "Текст извлечён, но слова не найдены.");
     } catch {
       setImportStatus("Не удалось прочитать файл. Проверьте формат и попробуйте ещё раз.");
     }
@@ -454,11 +554,11 @@ export default function Home() {
                 </button>
               );
             })}
-            <button type="button" className="dictionary-create" onClick={(event) => { setDictionarySourceLang("English"); setDictionaryTargetLang("Русский"); setDictionaryOpen(true); event.currentTarget.closest("details")?.removeAttribute("open"); }}><span className="material-symbols-outlined" aria-hidden="true">add</span>Добавить словарь</button>
+            <button type="button" className="dictionary-create" onClick={(event) => { openAdd("paste", "new"); event.currentTarget.closest("details")?.removeAttribute("open"); }}><span className="material-symbols-outlined" aria-hidden="true">add</span>Добавить словарь</button>
           </div>
         </details>
 
-        <button className="rail-add" onClick={() => { setAddMode("paste"); setAddOpen(true); }}>Добавить слова</button>
+        <button className="rail-add" onClick={() => openAdd("paste")}>Добавить слова</button>
 
         <div className="rail-section">
           <nav className="rail-nav quiet" aria-label="Обучение">
@@ -471,15 +571,20 @@ export default function Home() {
                 <span>{inputPeriodLabel}</span>
                 <i className="calendar-glyph" aria-hidden="true"><b /><b /></i>
               </button>
-              {trainingCalendarOpen && <section className="calendar-card" id="training-calendar-panel" aria-label="Выбор периода">
-                <div className="calendar-head"><b>{monthNames[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</b><div><button type="button" aria-label="Предыдущий месяц" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}>‹</button><button type="button" aria-label="Следующий месяц" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}>›</button></div></div>
-                <div className="weekdays">{["пн", "вт", "ср", "чт", "пт", "сб", "вс"].map(day => <span key={day}>{day}</span>)}</div>
-                <div className="calendar-grid">{calendarCells.map((cell, index) => cell ? <button key={cell.iso} className={`${cell.count ? "has" : ""} ${selectedDates.includes(cell.iso) ? "selected" : ""}`} onClick={() => { if (cell.count) toggleSelectedDate(cell.iso); }} aria-pressed={selectedDates.includes(cell.iso)} title={cell.count ? formatWordCount(cell.count) : undefined} aria-label={cell.count ? `${cell.day}, добавлено слов: ${cell.count}. ${selectedDates.includes(cell.iso) ? "Убрать из выбранных" : "Добавить к выбранным"}` : `${cell.day}, нет слов`}>{cell.day}</button> : <span key={index} />)}</div>
-                <div className={`calendar-period-summary ${selectedDates.length ? "" : "is-all"}`}>
+              {trainingCalendarOpen && <MonthCalendar
+                id="training-calendar-panel"
+                label="Выбор периода"
+                month={calendarMonth}
+                onMonthChange={setCalendarMonth}
+                cells={calendarCells}
+                mode="period"
+                selectedDates={selectedDates}
+                onToggleDate={toggleSelectedDate}
+                footer={<div className={`calendar-period-summary ${selectedDates.length ? "" : "is-all"}`}>
                   <span>{selectedDates.length ? `${formatDayCount(selectedDates.length)} · ${formatWordCount(trainingPeriodWords.length)}` : `За все дни · ${formatWordCount(dictionaryWords.length)}`}</span>
                   {!!selectedDates.length && <button type="button" onClick={clearSelectedDates}>Сбросить</button>}
-                </div>
-              </section>}
+                </div>}
+              />}
             </div>
             <TrainingFilters scope={scope} total={trainingPeriodWords.length} clean={trainingCleanWords.length} errors={trainingErrorWords.length} unlearned={trainingUnlearnedWords.length} onChange={selectPracticeScope} />
           </div>
@@ -511,9 +616,9 @@ export default function Home() {
             <nav className="quick-add-row" aria-label="Способы добавления слов">
               <MenuSelect className="sort-menu quick-sort-menu" ariaLabel="Сортировка" value={sortOrder} options={[{ value: "newest", label: "Сначала новые" }, { value: "oldest", label: "Сначала старые" }, { value: "alpha", label: "По алфавиту" }]} onChange={(value) => setSortOrder(value as "newest" | "oldest" | "alpha")} />
               <div className="quick-add-actions">
-                <button type="button" onClick={() => { setAddMode("single"); setAddOpen(true); }}><span className="material-symbols-outlined quick-add-icon" aria-hidden="true">add</span>Одно слово</button>
-                <button type="button" onClick={() => { setAddMode("paste"); setAddOpen(true); }}><span className="material-symbols-outlined quick-add-icon" aria-hidden="true">add</span>Группа слов</button>
-                <button type="button" aria-label="Распознать слова с фото или файла: TXT, CSV, DOCX, PDF, PNG, JPG, WEBP" onClick={() => { setAddMode("file"); setAddOpen(true); }}><span className="material-symbols-outlined quick-add-icon" aria-hidden="true">add</span>Слова с фото или файла</button>
+                <button type="button" onClick={() => openAdd("single")}><span className="material-symbols-outlined quick-add-icon" aria-hidden="true">add</span>Одно слово</button>
+                <button type="button" onClick={() => openAdd("paste")}><span className="material-symbols-outlined quick-add-icon" aria-hidden="true">add</span>Группа слов</button>
+                <button type="button" aria-label="Распознать слова с фото или файла: TXT, CSV, DOCX, PDF, PNG, JPG, WEBP" onClick={() => openAdd("file")}><span className="material-symbols-outlined quick-add-icon" aria-hidden="true">add</span>Слова с фото или файла</button>
               </div>
             </nav>
           </header>
@@ -522,12 +627,12 @@ export default function Home() {
         {view === "calendar" && <header className="main-toolbar calendar-toolbar"><div className="screen-title"><div><p>ИСТОРИЯ СЛОВ</p><h1>Календарь</h1></div></div><div className="calendar-toolbar-actions"><button onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}>Предыдущий месяц</button><b>{monthNames[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</b><button onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}>Следующий месяц</button></div></header>}
 
         <div className="content-scroll">
-          {view === "library" && (filteredWords.length ? <LibraryView words={filteredWords} editId={editId} setEditId={setEditId} updateWord={updateWord} setWords={setWords} speak={speak} onStartTraining={(date) => startPractice("all", date)} /> : <LibraryEmptyState query={search.trim()} hasDictionaryMatch={hasDictionaryMatch} similarWords={similarWords} onSelectSuggestion={(word) => { setScope("all"); setSelectedDates([]); setSearch(word.source); }} onAddSingle={() => { setSingleSource(search.trim()); setSingleTarget(""); setAddMode("single"); setAddOpen(true); }} onUpload={() => { setAddMode("file"); setAddOpen(true); }} onReset={() => { setScope("all"); setSelectedDates([]); }} />)}
+          {view === "library" && (filteredWords.length ? <LibraryView words={filteredWords} editId={editId} setEditId={setEditId} updateWord={updateWord} setWords={setWords} speak={speak} onStartTraining={(date) => startPractice("all", date)} /> : <LibraryEmptyState query={search.trim()} hasDictionaryMatch={hasDictionaryMatch} similarWords={similarWords} onSelectSuggestion={(word) => { setScope("all"); setSelectedDates([]); setSearch(word.source); }} onAddSingle={() => { setSingleSource(search.trim()); setSingleTarget(""); openAdd("single"); }} onUpload={() => openAdd("file")} onReset={() => { setScope("all"); setSelectedDates([]); }} />)}
           {view === "calendar" && <CalendarView cells={calendarCells} words={dictionaryWords} dateCounts={dateCounts} selectedDate={selectedDate} onSelectDate={(date) => { setSelectedDate(date); setScope("all"); setSearch(""); setView("library"); }} />}
           {isTraining && <TrainingHeader view={view as "cards" | "match" | "type"} count={practiceWords.length} selectedDate={selectedDate} onChange={openTraining} />}
-          {view === "cards" && (current ? <div className="practice-body"><div className="session-line"><span>{cardIndex % practiceWords.length + 1} из {practiceWords.length}</span><i><b style={{ width: `${((cardIndex % practiceWords.length + 1) / practiceWords.length) * 100}%` }} /></i></div><div className="flashcard-wrap"><button className={`flashcard ${revealed ? "revealed" : ""}`} onClick={() => setRevealed(!revealed)}><small>{revealed ? current.targetLang : current.sourceLang}</small><strong>{revealed ? current.target : current.source}</strong><span>{revealed ? "Нажмите, чтобы вернуть слово" : "Показать перевод"}</span></button><button className="listen-word" onClick={() => speak(current)}>Прослушать слово</button></div><div className="card-actions"><button className="danger" onClick={() => markCurrent("error")}>Ошибка, повторить</button><button onClick={() => markCurrent("learning")}>Пропустить</button><button className="success" onClick={() => markCurrent("known")}>Знаю</button></div></div> : <EmptyPractice onAdd={() => setAddOpen(true)} />)}
-          {view === "match" && (matchWords.length ? <div className="pairs"><div>{matchWords.map(word => <button disabled={matched.includes(word.id)} className={matchLeft === word.id ? "selected" : matched.includes(word.id) ? "done" : ""} onClick={() => chooseMatch("left", word.id)} key={word.id}>{word.source}</button>)}</div><div>{matchTranslations.map(word => <button disabled={matched.includes(word.id)} className={matchRight === word.target ? "selected" : matched.includes(word.id) ? "done" : ""} onClick={() => chooseMatch("right", word.target)} key={word.id}>{word.target}</button>)}</div></div> : <EmptyPractice onAdd={() => setAddOpen(true)} />)}
-          {view === "type" && (current ? <div className="type-practice"><span>{current.sourceLang}</span><h2>{current.source}</h2><button className="listen-word type-listen" onClick={() => speak(current)}>Прослушать слово</button><label htmlFor="answer">Перевод</label><div className={`answer ${feedback}`}><input id="answer" value={answer} onChange={event => { setAnswer(event.target.value); setFeedback("idle"); setSpeechMessage(""); }} onKeyDown={event => event.key === "Enter" && checkAnswer()} placeholder="Введите ответ"/><button className={`voice-input ${listening ? "listening" : ""}`} onClick={startVoiceInput}>{listening ? "Остановить запись" : "Голосовой ввод"}</button><button onClick={checkAnswer}>Проверить</button></div>{speechMessage && <p className="speech-message" role="status">{speechMessage}</p>}{feedback === "success" && <p className="feedback success-text">Верно. Слово перенесено в «Знаю».</p>}{feedback === "error" && <p className="feedback error-text">Правильный ответ: <b>{current.target}</b>. Слово добавлено в ошибки.</p>}<button className="next-button" onClick={() => { if (feedback === "success") markCurrent("known"); else { setCardIndex(i => i + 1); setAnswer(""); setFeedback("idle"); setSpeechMessage(""); } }}>Следующее слово</button></div> : <EmptyPractice onAdd={() => setAddOpen(true)} />)}
+          {view === "cards" && (current ? <div className="practice-body"><div className="session-line"><span>{cardIndex % practiceWords.length + 1} из {practiceWords.length}</span><i><b style={{ width: `${((cardIndex % practiceWords.length + 1) / practiceWords.length) * 100}%` }} /></i></div><div className="flashcard-wrap"><button className={`flashcard ${revealed ? "revealed" : ""}`} onClick={() => setRevealed(!revealed)}><small>{revealed ? current.targetLang : current.sourceLang}</small><strong>{revealed ? current.target : current.source}</strong><span>{revealed ? "Нажмите, чтобы вернуть слово" : "Показать перевод"}</span></button><button className="listen-word" onClick={() => speak(current)}>Прослушать слово</button></div><div className="card-actions"><button className="danger" onClick={() => markCurrent("error")}>Ошибка, повторить</button><button onClick={() => markCurrent("learning")}>Пропустить</button><button className="success" onClick={() => markCurrent("known")}>Знаю</button></div></div> : <EmptyPractice onAdd={() => openAdd()} />)}
+          {view === "match" && (matchWords.length ? <div className="pairs"><div>{matchWords.map(word => <button disabled={matched.includes(word.id)} className={matchLeft === word.id ? "selected" : matched.includes(word.id) ? "done" : ""} onClick={() => chooseMatch("left", word.id)} key={word.id}>{word.source}</button>)}</div><div>{matchTranslations.map(word => <button disabled={matched.includes(word.id)} className={matchRight === word.target ? "selected" : matched.includes(word.id) ? "done" : ""} onClick={() => chooseMatch("right", word.target)} key={word.id}>{word.target}</button>)}</div></div> : <EmptyPractice onAdd={() => openAdd()} />)}
+          {view === "type" && (current ? <div className="type-practice"><span>{current.sourceLang}</span><h2>{current.source}</h2><button className="listen-word type-listen" onClick={() => speak(current)}>Прослушать слово</button><label htmlFor="answer">Перевод</label><div className={`answer ${feedback}`}><input id="answer" value={answer} onChange={event => { setAnswer(event.target.value); setFeedback("idle"); setSpeechMessage(""); }} onKeyDown={event => event.key === "Enter" && checkAnswer()} placeholder="Введите ответ"/><button className={`voice-input ${listening ? "listening" : ""}`} onClick={startVoiceInput}>{listening ? "Остановить запись" : "Голосовой ввод"}</button><button onClick={checkAnswer}>Проверить</button></div>{speechMessage && <p className="speech-message" role="status">{speechMessage}</p>}{feedback === "success" && <p className="feedback success-text">Верно. Слово перенесено в «Знаю».</p>}{feedback === "error" && <p className="feedback error-text">Правильный ответ: <b>{current.target}</b>. Слово добавлено в ошибки.</p>}<button className="next-button" onClick={() => { if (feedback === "success") markCurrent("known"); else { setCardIndex(i => i + 1); setAnswer(""); setFeedback("idle"); setSpeechMessage(""); } }}>Следующее слово</button></div> : <EmptyPractice onAdd={() => openAdd()} />)}
         </div>
       </section>
 
@@ -538,15 +643,20 @@ export default function Home() {
             <span>{inputPeriodLabel}</span>
             <i className="calendar-glyph" aria-hidden="true"><b /><b /></i>
           </button>
-          {calendarOpen && <section className="calendar-card" id="calendar-panel" aria-label="Выбор периода">
-            <div className="calendar-head"><b>{monthNames[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</b><div><button type="button" aria-label="Предыдущий месяц" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}>‹</button><button type="button" aria-label="Следующий месяц" onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}>›</button></div></div>
-            <div className="weekdays">{["пн", "вт", "ср", "чт", "пт", "сб", "вс"].map(day => <span key={day}>{day}</span>)}</div>
-            <div className="calendar-grid">{calendarCells.map((cell, index) => cell ? <button key={cell.iso} className={`${cell.count ? "has" : ""} ${selectedDates.includes(cell.iso) ? "selected" : ""}`} onClick={() => { if (cell.count) toggleSelectedDate(cell.iso); }} aria-pressed={selectedDates.includes(cell.iso)} title={cell.count ? formatWordCount(cell.count) : undefined} aria-label={cell.count ? `${cell.day}, добавлено слов: ${cell.count}. ${selectedDates.includes(cell.iso) ? "Убрать из выбранных" : "Добавить к выбранным"}` : `${cell.day}, нет слов`}>{cell.day}</button> : <span key={index} />)}</div>
-            <div className={`calendar-period-summary ${selectedDates.length ? "" : "is-all"}`}>
+          {calendarOpen && <MonthCalendar
+            id="calendar-panel"
+            label="Выбор периода"
+            month={calendarMonth}
+            onMonthChange={setCalendarMonth}
+            cells={calendarCells}
+            mode="period"
+            selectedDates={selectedDates}
+            onToggleDate={toggleSelectedDate}
+            footer={<div className={`calendar-period-summary ${selectedDates.length ? "" : "is-all"}`}>
               <span>{selectedDates.length ? `${formatDayCount(selectedDates.length)} · ${formatWordCount(trainingPeriodWords.length)}` : `За все дни · ${formatWordCount(dictionaryWords.length)}`}</span>
               {!!selectedDates.length && <button type="button" onClick={clearSelectedDates}>Сбросить</button>}
-            </div>
-          </section>}
+            </div>}
+          />}
         </div>
 
         <section className="context-words-card">
@@ -558,16 +668,219 @@ export default function Home() {
       </aside>}
     </section>
 
-    {dictionaryOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setDictionaryOpen(false)}><section className="add-modal dictionary-modal" role="dialog" aria-modal="true" aria-labelledby="dictionary-title"><header><div><p>НОВЫЙ СЛОВАРЬ</p><h2 id="dictionary-title">Выберите языки</h2></div><button className="close" onClick={() => setDictionaryOpen(false)} aria-label="Закрыть">×</button></header><div className="dictionary-language-fields"><label>Язык слов<MenuSelect ariaLabel="Язык словаря" value={dictionarySourceLang} options={DICTIONARY_LANGUAGES.map((language) => ({ value: language, label: language }))} onChange={setDictionarySourceLang} /></label><span className="material-symbols-outlined" aria-hidden="true">arrow_forward</span><label>Язык перевода<MenuSelect ariaLabel="Язык перевода словаря" value={dictionaryTargetLang} options={DICTIONARY_LANGUAGES.map((language) => ({ value: language, label: language }))} onChange={setDictionaryTargetLang} /></label></div>{dictionarySourceLang === dictionaryTargetLang && <p className="dictionary-language-error" role="alert">Выберите два разных языка.</p>}<button className="primary full" disabled={dictionarySourceLang === dictionaryTargetLang} onClick={createDictionary}>Создать словарь</button></section></div>}
+    {addOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeAdd(); }}>
+      <section className="add-modal" role="dialog" aria-modal="true" aria-labelledby="add-title">
+        <header>
+          <div>
+            <p>{isCreatingDictionary ? "НОВЫЙ СЛОВАРЬ" : "ЛИЧНЫЙ СЛОВАРЬ"}</p>
+            <h2 id="add-title">{isCreatingDictionary ? "Создать словарь и добавить слова" : "Добавить слова"}</h2>
+          </div>
+          <button className="close" onClick={closeAdd} aria-label="Закрыть">×</button>
+        </header>
 
-    {addOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setAddOpen(false)}><section className="add-modal" role="dialog" aria-modal="true" aria-labelledby="add-title"><header><div><p>ЛИЧНЫЙ СЛОВАРЬ</p><h2 id="add-title">Добавить слова</h2></div><button className="close" onClick={() => setAddOpen(false)} aria-label="Закрыть">×</button></header><nav>{(["paste", "file", "single"] as AddMode[]).map(item => <button key={item} className={addMode === item ? "active" : ""} onClick={() => setAddMode(item)}>{{ paste: "Вставить список", file: "Загрузить файл", single: "Одно слово" }[item]}</button>)}</nav><div className="import-settings"><label>Дата добавления<input type="date" value={addDate} onChange={event => setAddDate(event.target.value)} /></label><label>Язык слов<MenuSelect ariaLabel="Язык слов" value={sourceLang} options={LANGUAGES.map(lang => ({ value: lang, label: lang }))} onChange={setSourceLang} /></label><label>Язык перевода<MenuSelect ariaLabel="Язык перевода" value={targetLang} options={LANGUAGES.map(lang => ({ value: lang, label: lang }))} onChange={setTargetLang} /></label></div>{addMode === "paste" && <div className="paste-pane"><label>Скопируйте пары — по одной в строке<textarea value={bulkText} onChange={event => setBulkText(event.target.value)} placeholder={'circumstances — обстоятельства\nto intend — намереваться\n\nДата: 11.08.2026\nheadphones — наушники'} /></label><p>Разделители: тире, табуляция, точка с запятой или CSV. Дату можно указать отдельной строкой или первым столбцом.</p>{previewWords.length > 0 && <div className="import-preview"><b>Предпросмотр · {previewWords.length}</b>{previewWords.slice(0, 4).map(word => <span key={word.id}>{word.source} <i>→</i> {word.target}<small>{formatDate(word.addedAt)}</small></span>)}</div>}<button className="primary full" onClick={() => addParsed(previewWords)} disabled={!previewWords.length}>Добавить {previewWords.length || ""} слов</button></div>}{addMode === "file" && <div className="file-pane"><input ref={fileRef} type="file" hidden accept=".txt,.csv,.tsv,.docx,.pdf,image/png,image/jpeg,image/webp,image/heic" onChange={event => event.target.files?.[0] && extractFile(event.target.files[0])}/><button className="drop-zone" onClick={() => fileRef.current?.click()}><b>{fileName || "Выберите файл"}</b><span>TXT, CSV, DOCX, PDF, PNG, JPG, WEBP</span><small>Текст и языки распознаются автоматически. Перед добавлением вы сможете проверить пары.</small></button><p className="privacy-note">Файл обрабатывается в браузере и не сохраняется на сервере.</p></div>}{addMode === "single" && <div className="single-pane"><label>Слово или выражение<input value={singleSource} onChange={event => setSingleSource(event.target.value)} placeholder="circumstances" /></label><label>Перевод<input value={singleTarget} onChange={event => setSingleTarget(event.target.value)} placeholder="обстоятельства" /></label><button className="primary full" onClick={addSingle}>Добавить слово</button></div>}{importStatus && <div className="import-status" role="status">{importStatus}</div>}</section></div>}
+        <div className="import-dictionary">
+          <div className="import-dictionary-row">
+            <div className="import-field">
+              <span className="period-label">Словарь</span>
+              <MenuSelect
+                className="import-menu"
+                ariaLabel="Словарь"
+                value={addTargetId}
+                options={[
+                  ...dictionaries.map((dictionary) => ({ value: dictionary.id, label: `${dictionary.sourceLang} — ${dictionary.targetLang}` })),
+                  { value: "new", label: "Новый словарь" },
+                ]}
+                onChange={(value) => {
+                  setAddTargetId(value === "new" ? "new" : value);
+                  setAddDateOpen(false);
+                  if (value === "new") {
+                    setNewSourceLang("English");
+                    setNewTargetLang("Русский");
+                  }
+                }}
+                onOpen={() => setAddDateOpen(false)}
+              />
+            </div>
+            <div className={`period-picker add-date-picker ${addDateOpen ? "open" : ""}`}>
+              <label className="period-label" htmlFor="add-date">Дата добавления</label>
+              <button
+                id="add-date"
+                className="period-control"
+                type="button"
+                aria-label={`${addDateOpen ? "Закрыть" : "Открыть"} календарь. Дата добавления: ${formatInputDate(addDate)}`}
+                aria-haspopup="dialog"
+                aria-expanded={addDateOpen}
+                aria-controls="add-date-calendar"
+                onClick={() => {
+                  setAddCalendarMonth(new Date(`${addDate}T12:00:00`));
+                  setAddDateOpen((open) => !open);
+                }}
+              >
+                <span>{formatInputDate(addDate)}</span>
+                <i className="calendar-glyph" aria-hidden="true"><b /><b /></i>
+              </button>
+              {addDateOpen && <MonthCalendar
+                id="add-date-calendar"
+                label="Выбор даты добавления"
+                month={addCalendarMonth}
+                onMonthChange={setAddCalendarMonth}
+                cells={addCalendarCells}
+                mode="pick"
+                selectedDate={addDate}
+                onPickDate={(iso) => { setAddDate(iso); setAddDateOpen(false); }}
+              />}
+            </div>
+          </div>
+          {isCreatingDictionary && (
+            <div className="dictionary-language-fields">
+              <div className="dictionary-language-field"><span>Язык слов</span>
+                <MenuSelect className="import-menu" ariaLabel="Язык словаря" value={newSourceLang} options={DICTIONARY_LANGUAGES.map((language) => ({ value: language, label: language }))} onChange={(value) => { setNewSourceLang(value); setAddDateOpen(false); }} onOpen={() => setAddDateOpen(false)} />
+              </div>
+              <span className="material-symbols-outlined" aria-hidden="true">arrow_forward</span>
+              <div className="dictionary-language-field"><span>Язык перевода</span>
+                <MenuSelect className="import-menu" ariaLabel="Язык перевода словаря" value={newTargetLang} options={DICTIONARY_LANGUAGES.map((language) => ({ value: language, label: language }))} onChange={(value) => { setNewTargetLang(value); setAddDateOpen(false); }} onOpen={() => setAddDateOpen(false)} />
+              </div>
+            </div>
+          )}
+          {newDictionaryLanguagesInvalid && <p className="dictionary-language-error" role="alert">Выберите два разных языка.</p>}
+        </div>
+
+        <nav>{(["paste", "file", "single"] as AddMode[]).map((item) => <button key={item} className={addMode === item ? "active" : ""} onClick={() => setAddMode(item)}>{{ paste: "Вставить список", file: "Загрузить файл", single: "Одно слово" }[item]}</button>)}</nav>
+
+        {addMode === "paste" && <div className="paste-pane">
+          <label>Вставьте скопированный текст
+            <textarea
+              value={bulkText}
+              onChange={(event) => setBulkText(event.target.value)}
+              placeholder={"circumstances\nto intend — намереваться\nheadphones"}
+            />
+          </label>
+          <p className="paste-help">Вставьте слова или пары «слово — перевод», каждую с новой строки. Если перевода нет, мы определим его автоматически. Перед добавлением всё можно проверить и исправить.</p>
+          {previewWords.length > 0 && <section className="import-preview" aria-label="Предпросмотр слов">
+            <header>
+              <div><b>Предпросмотр</b><span>{formatWordCount(importablePreviewWords.length)} для добавления</span></div>
+              {isTranslatingPreview && <em>Определяем переводы…</em>}
+            </header>
+            <div className="import-preview-list">
+              {previewWords.map((word) => {
+                const duplicate = existingPreviewSources.has(normalizeForMatch(word.source));
+                return <div className={`import-preview-row ${duplicate ? "duplicate" : ""}`} key={word.id}>
+                  <input aria-label="Слово" value={word.source} onChange={(event) => updatePreviewWord(word.id, { source: event.target.value })} />
+                  <i aria-hidden="true">→</i>
+                  <input aria-label={`Перевод слова ${word.source}`} value={word.target} onChange={(event) => updatePreviewWord(word.id, { target: event.target.value })} placeholder={isTranslatingPreview ? "Определяем перевод…" : "Введите перевод"} />
+                  <small>{duplicate ? "Уже в словаре" : formatInputDate(word.addedAt)}</small>
+                </div>;
+              })}
+            </div>
+          </section>}
+          <button className="primary full" onClick={() => addParsed(previewWords)} disabled={!importablePreviewWords.length || isTranslatingPreview || newDictionaryLanguagesInvalid}>
+            {importablePreviewWords.length
+              ? isCreatingDictionary
+                ? `Создать словарь и добавить ${formatWordCount(importablePreviewWords.length)}`
+                : `Добавить ${formatWordCount(importablePreviewWords.length)}`
+              : "Добавить слова"}
+          </button>
+        </div>}
+
+        {addMode === "file" && <div className="file-pane">
+          <input ref={fileRef} type="file" hidden accept=".txt,.csv,.tsv,.docx,.pdf,image/png,image/jpeg,image/webp,image/heic" onChange={(event) => event.target.files?.[0] && extractFile(event.target.files[0])} />
+          <button className="drop-zone" onClick={() => fileRef.current?.click()} disabled={newDictionaryLanguagesInvalid}>
+            <b>{fileName || "Выберите файл"}</b>
+            <span>TXT, CSV, DOCX, PDF, PNG, JPG, WEBP</span>
+            <small>Текст распознаётся автоматически. Перед добавлением вы сможете проверить пары.</small>
+          </button>
+          <p className="privacy-note">Файл обрабатывается в браузере и не сохраняется на сервере.</p>
+        </div>}
+
+        {addMode === "single" && <div className="single-pane">
+          <label>Слово или выражение<input value={singleSource} onChange={(event) => setSingleSource(event.target.value)} placeholder="circumstances" /></label>
+          <label>Перевод<input value={singleTarget} onChange={(event) => setSingleTarget(event.target.value)} placeholder="обстоятельства" /></label>
+          <button className="primary full" onClick={addSingle} disabled={newDictionaryLanguagesInvalid}>
+            {isCreatingDictionary ? "Создать словарь и добавить слово" : "Добавить слово"}
+          </button>
+        </div>}
+
+        {importStatus && <div className="import-status" role="status">{importStatus}</div>}
+      </section>
+    </div>}
   </main>;
 }
 
-function MenuSelect({ ariaLabel, value, options, onChange, className = "", icon }: { ariaLabel: string; value: string; options: Array<{ value: string; label: string }>; onChange: (value: string) => void; className?: string; icon?: string }) {
+function buildMonthCells(month: Date, dateCounts?: Record<string, number>) {
+  const year = month.getFullYear();
+  const monthIndex = month.getMonth();
+  const firstWeekDay = (new Date(year, monthIndex, 1).getDay() + 6) % 7;
+  const days = new Date(year, monthIndex + 1, 0).getDate();
+  return Array.from({ length: 42 }, (_, index) => {
+    const day = index - firstWeekDay + 1;
+    if (day < 1 || day > days) return null;
+    const iso = `${year}-${String(monthIndex + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    return { day, iso, count: dateCounts?.[iso] ?? 0 };
+  });
+}
+
+function MonthCalendar({
+  id,
+  label,
+  month,
+  onMonthChange,
+  cells,
+  mode,
+  selectedDates = [],
+  selectedDate = null,
+  onToggleDate,
+  onPickDate,
+  footer,
+}: {
+  id?: string;
+  label: string;
+  month: Date;
+  onMonthChange: (month: Date) => void;
+  cells: Array<{ day: number; iso: string; count?: number } | null>;
+  mode: "period" | "pick";
+  selectedDates?: string[];
+  selectedDate?: string | null;
+  onToggleDate?: (iso: string) => void;
+  onPickDate?: (iso: string) => void;
+  footer?: ReactNode;
+}) {
+  return <section className={`calendar-card ${mode === "pick" ? "calendar-card-pick" : ""}`} id={id} aria-label={label}>
+    <div className="calendar-head">
+      <b>{monthNames[month.getMonth()]} {month.getFullYear()}</b>
+      <div>
+        <button type="button" aria-label="Предыдущий месяц" onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>‹</button>
+        <button type="button" aria-label="Следующий месяц" onClick={() => onMonthChange(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>›</button>
+      </div>
+    </div>
+    <div className="weekdays">{["пн", "вт", "ср", "чт", "пт", "сб", "вс"].map((day) => <span key={day}>{day}</span>)}</div>
+    <div className={`calendar-grid ${mode === "pick" ? "pick-any" : ""}`}>
+      {cells.map((cell, index) => {
+        if (!cell) return <span key={index} />;
+        if (mode === "pick") {
+          const selected = selectedDate === cell.iso;
+          return <button key={cell.iso} type="button" className={selected ? "selected" : ""} aria-pressed={selected} aria-label={formatDate(cell.iso)} onClick={() => onPickDate?.(cell.iso)}>{cell.day}</button>;
+        }
+        const count = cell.count ?? 0;
+        const selected = selectedDates.includes(cell.iso);
+        return <button
+          key={cell.iso}
+          type="button"
+          className={`${count ? "has" : ""} ${selected ? "selected" : ""}`}
+          onClick={() => { if (count) onToggleDate?.(cell.iso); }}
+          aria-pressed={selected}
+          title={count ? formatWordCount(count) : undefined}
+          aria-label={count ? `${cell.day}, добавлено слов: ${count}. ${selected ? "Убрать из выбранных" : "Добавить к выбранным"}` : `${cell.day}, нет слов`}
+        >{cell.day}</button>;
+      })}
+    </div>
+    {footer}
+  </section>;
+}
+
+function MenuSelect({ ariaLabel, value, options, onChange, className = "", icon, onOpen }: { ariaLabel: string; value: string; options: Array<{ value: string; label: string }>; onChange: (value: string) => void; className?: string; icon?: string; onOpen?: () => void }) {
   const selected = options.find((option) => option.value === value)?.label ?? value;
-  return <details className={`menu-select ${className}`.trim()}>
-    <summary aria-label={`${ariaLabel}: ${selected}`}>{icon && <span className="material-symbols-rounded menu-select-icon" aria-hidden="true">{icon}</span>}<span className="menu-select-value">{selected}</span><span className="material-symbols-outlined menu-select-arrow" aria-hidden="true">keyboard_arrow_down</span></summary>
+  return <details className={`menu-select ${className}`.trim()} onToggle={(event) => { if (event.currentTarget.open) onOpen?.(); }}>
+    <summary aria-label={`${ariaLabel}: ${selected}`}>{icon && <span className="material-symbols-outlined menu-select-icon" aria-hidden="true">{icon}</span>}<span className="menu-select-value">{selected}</span><span className="material-symbols-outlined menu-select-arrow" aria-hidden="true">keyboard_arrow_down</span></summary>
     <div role="listbox" aria-label={ariaLabel}>{options.map((option) => <button type="button" role="option" aria-selected={option.value === value} className={option.value === value ? "active" : ""} key={option.value} onClick={(event) => { onChange(option.value); event.currentTarget.closest("details")?.removeAttribute("open"); }}>{option.label}</button>)}</div>
   </details>;
 }
