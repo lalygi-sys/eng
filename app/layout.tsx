@@ -30,7 +30,7 @@ export default function RootLayout({
     <html lang="ru">
       <head>
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20,300,0..1,0&icon_names=delete,download,edit,volume_up&display=block" />
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..24,400,0..1,0&icon_names=add,brand_awareness,check_circle,delete,download,edit,error,keyboard_arrow_down,radio_button_unchecked,search&display=block" />
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..24,400,0..1,0&icon_names=add,arrow_forward,brand_awareness,calendar_month,check_circle,delete,download,edit,error,keyboard_arrow_down,radio_button_unchecked,search,skip_next&display=block" />
       </head>
       <body className={`${geistSans.variable} antialiased`}>
         {children}
