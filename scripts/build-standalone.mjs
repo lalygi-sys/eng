@@ -15,7 +15,7 @@ const html = `<!doctype html>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>Lingua — словарь</title>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..24,400,0,0&icon_names=add,arrow_forward,brand_awareness,calendar_month,delete,download,edit,keyboard_arrow_down,search,skip_next&display=block">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..24,400,0,0&icon_names=add,arrow_forward,brand_awareness,calendar_month,close,delete,download,edit,keyboard_arrow_down,mic,search,skip_next&display=block">
     <style>${css}</style>
   </head>
   <body class="antialiased">

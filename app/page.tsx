@@ -13,7 +13,26 @@ type Word = {
   addedAt: string;
   status: WordStatus;
   errorCount: number;
+  correctStreak: number;
 };
+const STATUS_THRESHOLD = 5; // recommend 5 over 10 for session length; user asked about 10
+const STATUS_LABEL: Record<WordStatus, string> = { learning: "Не изучены", known: "Без ошибок", error: "С ошибками" };
+type PracticePromptMode = "source" | "target" | "mixed";
+
+function resolvePromptSide(mode: PracticePromptMode, wordId: string): "source" | "target" {
+  if (mode === "source" || mode === "target") return mode;
+  let hash = 0;
+  for (let index = 0; index < wordId.length; index += 1) hash = (hash * 33 + wordId.charCodeAt(index)) >>> 0;
+  return hash % 2 === 0 ? "source" : "target";
+}
+
+function getPracticeSides(word: Word, mode: PracticePromptMode) {
+  const side = resolvePromptSide(mode, word.id);
+  if (side === "source") {
+    return { side, prompt: word.source, promptLang: word.sourceLang, answer: word.target, answerLang: word.targetLang };
+  }
+  return { side, prompt: word.target, promptLang: word.targetLang, answer: word.source, answerLang: word.sourceLang };
+}
 type Dictionary = { id: string; sourceLang: string; targetLang: string };
 type Scope = "all" | "clean" | "errors" | "known" | "unlearned";
 type View = "library" | "calendar" | "cards" | "match" | "type";
@@ -46,7 +65,7 @@ const starterWords: Word[] = [
   ["to treat", "лечить; обращаться с кем-то", "2026-07-22"],
   ["recently", "недавно, в последнее время", "2026-07-22"],
   ["thorough", "тщательный", "2026-07-22"],
-].map(([source, target, addedAt], index) => ({ id: `starter-${index}`, source, target, addedAt, sourceLang: "English", targetLang: "Русский", status: index === 3 ? "error" : index === 6 ? "known" : "learning", errorCount: index === 3 ? 2 : 0 } as Word));
+].map(([source, target, addedAt], index) => ({ id: `starter-${index}`, source, target, addedAt, sourceLang: "English", targetLang: "Русский", status: index === 3 ? "error" : index === 6 ? "known" : "learning", errorCount: index === 3 ? 2 : 0, correctStreak: 0 } as Word));
 
 const monthNames = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
 const langCode: Record<string, string> = { English: "en-US", Русский: "ru-RU", Deutsch: "de-DE", Español: "es-ES", Français: "fr-FR", ქართული: "ka-GE" };
@@ -146,7 +165,7 @@ function parsePairs(text: string, fallbackDate: string, sourceLanguage: string, 
     const source = parts.shift()!;
     const target = parts.join("; ").trim();
     if (/^(word|слово|english)$/i.test(source) && /^(translation|перевод|russian)$/i.test(target)) continue;
-    result.push({ id: uid(), source, target, addedAt: rowDate, sourceLang: sourceLanguage === LANGUAGES[0] ? detectLanguage(source) : sourceLanguage, targetLang: targetLanguage === LANGUAGES[0] ? detectLanguage(target) : targetLanguage, status: "learning", errorCount: 0 });
+    result.push({ id: uid(), source, target, addedAt: rowDate, sourceLang: sourceLanguage === LANGUAGES[0] ? detectLanguage(source) : sourceLanguage, targetLang: targetLanguage === LANGUAGES[0] ? detectLanguage(target) : targetLanguage, status: "learning", errorCount: 0, correctStreak: 0 });
   }
   return result;
 }
@@ -181,15 +200,43 @@ function matchesScope(word: Word, scope: Scope) {
   return true;
 }
 
+function normalizeWord(word: Word): Word {
+  return { ...word, errorCount: word.errorCount ?? 0, correctStreak: word.correctStreak ?? 0 };
+}
+
+function practicePatch(word: Word, ok: boolean): { patch: Partial<Word>; promoted: WordStatus | null } {
+  if (ok) {
+    const correctStreak = (word.correctStreak ?? 0) + 1;
+    if (correctStreak >= STATUS_THRESHOLD) {
+      return {
+        patch: { correctStreak, status: "known", errorCount: 0 },
+        promoted: word.status === "known" ? null : "known",
+      };
+    }
+    return { patch: { correctStreak }, promoted: null };
+  }
+  const errorCount = word.errorCount + 1;
+  const correctStreak = 0;
+  if (errorCount >= STATUS_THRESHOLD) {
+    return {
+      patch: { errorCount, correctStreak, status: "error" },
+      promoted: word.status === "error" ? null : "error",
+    };
+  }
+  return {
+    patch: { errorCount, correctStreak, status: word.status === "known" ? "learning" : word.status },
+    promoted: null,
+  };
+}
+
 function downloadDictionary(words: Word[], format: ExportFormat) {
   const sortedWords = [...words].sort((a, b) => b.addedAt.localeCompare(a.addedAt) || a.source.localeCompare(b.source));
-  const statusLabel: Record<WordStatus, string> = { learning: "Не изучены", known: "Без ошибок", error: "С ошибками" };
   let content = "";
   let mimeType = "text/plain;charset=utf-8";
 
   if (format === "csv") {
     const escapeCell = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`;
-    const rows = sortedWords.map(word => [word.addedAt, word.source, word.target, word.sourceLang, word.targetLang, statusLabel[word.status], word.errorCount].map(escapeCell).join(";"));
+    const rows = sortedWords.map(word => [word.addedAt, word.source, word.target, word.sourceLang, word.targetLang, STATUS_LABEL[word.status], word.errorCount].map(escapeCell).join(";"));
     content = `\uFEFF${["Дата добавления", "Слово", "Перевод", "Язык слова", "Язык перевода", "Статус", "Количество ошибок"].map(escapeCell).join(";")}\n${rows.join("\n")}`;
     mimeType = "text/csv;charset=utf-8";
   } else if (format === "json") {
@@ -200,7 +247,7 @@ function downloadDictionary(words: Word[], format: ExportFormat) {
       result[word.addedAt] = [...(result[word.addedAt] ?? []), word];
       return result;
     }, {});
-    content = Object.entries(groups).map(([date, items]) => `Дата: ${date}\n${items.map(word => `${word.source} — ${word.target}\n#META ${word.sourceLang}|${word.targetLang}|${statusLabel[word.status]}|${word.errorCount}`).join("\n")}`).join("\n\n");
+    content = Object.entries(groups).map(([date, items]) => `Дата: ${date}\n${items.map(word => `${word.source} — ${word.target}\n#META ${word.sourceLang}|${word.targetLang}|${STATUS_LABEL[word.status]}|${word.errorCount}`).join("\n")}`).join("\n\n");
   }
 
   const blobUrl = URL.createObjectURL(new Blob([content], { type: mimeType }));
@@ -243,16 +290,26 @@ export default function Home() {
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest" | "alpha">("newest");
   const [cardIndex, setCardIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
+  const [cardFlash, setCardFlash] = useState<"success" | "error" | null>(null);
   const [answer, setAnswer] = useState("");
+  const cardFlashTimerRef = useRef<number | null>(null);
   const [feedback, setFeedback] = useState<"idle" | "success" | "error">("idle");
   const [listening, setListening] = useState(false);
   const [speechMessage, setSpeechMessage] = useState("");
   const [matchLeft, setMatchLeft] = useState<string | null>(null);
   const [matchRight, setMatchRight] = useState<string | null>(null);
   const [matched, setMatched] = useState<string[]>([]);
+  const [matchFlash, setMatchFlash] = useState<"success" | "error" | null>(null);
+  const [statusOffer, setStatusOffer] = useState<null | { wordId: string; status: WordStatus; label: string; suggest: WordStatus }>(null);
+  const [practicePromptMode, setPracticePromptMode] = useState<PracticePromptMode>("source");
   const fileRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
+  useEffect(() => {
+    return () => {
+      if (cardFlashTimerRef.current) window.clearTimeout(cardFlashTimerRef.current);
+    };
+  }, []);
   useEffect(() => {
     let saved: string | null = null;
     let savedDictionaries: string | null = null;
@@ -265,7 +322,10 @@ export default function Home() {
       // Some local previews use an opaque browser origin where storage is unavailable.
     }
     /* eslint-disable react-hooks/set-state-in-effect -- restore browser-only dictionary state after hydration */
-    if (saved) try { setWords(JSON.parse(saved)); } catch { /* keep starter data */ }
+    if (saved) try {
+      const parsed = JSON.parse(saved) as Word[];
+      setWords(parsed.map(normalizeWord));
+    } catch { /* keep starter data */ }
     if (savedDictionaries) try { setDictionaries(JSON.parse(savedDictionaries)); } catch { /* keep starter dictionary */ }
     if (savedSelectedDictionary) setSelectedDictionaryId(savedSelectedDictionary);
     setHydrated(true);
@@ -308,6 +368,7 @@ export default function Home() {
   const similarWords = useMemo(() => normalizedSearch && !hasDictionaryMatch ? findSimilarWords(search, dictionaryWords) : [], [search, dictionaryWords, normalizedSearch, hasDictionaryMatch]);
   const practiceWords = filteredWords;
   const current = practiceWords[cardIndex % Math.max(practiceWords.length, 1)];
+  const currentSides = current ? getPracticeSides(current, practicePromptMode) : null;
   const parsedPreviewWords = useMemo(() => parsePairs(bulkText, addDate, addSourceLang, addTargetLang), [bulkText, addDate, addSourceLang, addTargetLang]);
   const previewDictionary = addTargetId === "new"
     ? dictionaries.find((dictionary) => dictionary.sourceLang === newSourceLang && dictionary.targetLang === newTargetLang)
@@ -318,7 +379,11 @@ export default function Home() {
   const existingPreviewSources = new Set(previewDictionaryWords.map((word) => normalizeForMatch(word.source)));
   const importablePreviewWords = previewWords.filter((word) => word.source.trim() && word.target.trim() && !existingPreviewSources.has(normalizeForMatch(word.source)));
   const matchWords = practiceWords.slice(0, 6);
-  const matchTranslations = useMemo(() => [...matchWords].sort((a, b) => a.target.localeCompare(b.target)), [matchWords]);
+  const matchPairs = useMemo(() => matchWords.map((word) => {
+    const sides = getPracticeSides(word, practicePromptMode);
+    return { word, left: sides.prompt, right: sides.answer };
+  }), [matchWords, practicePromptMode]);
+  const matchTranslations = useMemo(() => [...matchPairs].sort((a, b) => a.right.localeCompare(b.right, "ru")), [matchPairs]);
 
   const calendarCells = useMemo(() => buildMonthCells(calendarMonth, dateCounts), [calendarMonth, dateCounts]);
   const addCalendarCells = useMemo(() => buildMonthCells(addCalendarMonth), [addCalendarMonth]);
@@ -406,7 +471,10 @@ export default function Home() {
     resetPracticeState();
     if (!isTraining) { setContextWordFilter("day"); setView("library"); setScope("all"); }
   }
-  function resetPracticeState() { setCardIndex(0); setRevealed(false); setFeedback("idle"); setAnswer(""); setSpeechMessage(""); setMatched([]); }
+  function resetPracticeState() {
+    if (cardFlashTimerRef.current) window.clearTimeout(cardFlashTimerRef.current);
+    setCardIndex(0); setRevealed(false); setCardFlash(null); setFeedback("idle"); setAnswer(""); setSpeechMessage(""); setMatched([]); setStatusOffer(null);
+  }
   function startPractice(nextScope: Scope, nextDate: string | null = selectedDate) { setScope(nextScope); setSelectedDate(nextDate); setSearch(""); resetPracticeState(); setView("cards"); }
   function openTraining(nextView: "cards" | "match" | "type") {
     if (!isTraining) setScope("all");
@@ -414,9 +482,37 @@ export default function Home() {
   }
   function selectPracticeScope(nextScope: "all" | "clean" | "errors" | "unlearned") { setScope(nextScope); setSearch(""); resetPracticeState(); }
   function markCurrent(status: WordStatus) {
-    if (!current) return;
-    updateWord(current.id, { status, errorCount: status === "error" ? current.errorCount + 1 : status === "known" ? 0 : current.errorCount });
-    setCardIndex((index) => index + 1); setRevealed(false); setFeedback("idle"); setAnswer("");
+    if (!current || cardFlash) return;
+    updateWord(current.id, {
+      status,
+      errorCount: status === "error" ? current.errorCount + 1 : status === "known" ? 0 : current.errorCount,
+      correctStreak: status === "known" ? STATUS_THRESHOLD : status === "error" ? 0 : current.correctStreak ?? 0,
+    });
+    setStatusOffer(null);
+    const advance = () => {
+      setCardFlash(null);
+      setCardIndex((index) => index + 1);
+      setRevealed(false);
+      setFeedback("idle");
+      setAnswer("");
+    };
+    if (status === "known" || status === "error") {
+      setCardFlash(status === "known" ? "success" : "error");
+      if (cardFlashTimerRef.current) window.clearTimeout(cardFlashTimerRef.current);
+      cardFlashTimerRef.current = window.setTimeout(advance, 420);
+      return;
+    }
+    advance();
+  }
+  function applyStatusMove(wordId: string, status: WordStatus) {
+    const word = words.find((item) => item.id === wordId);
+    if (!word) return;
+    updateWord(wordId, {
+      status,
+      errorCount: status === "error" ? Math.max(1, word.errorCount) : status === "known" ? 0 : word.errorCount,
+      correctStreak: status === "known" ? STATUS_THRESHOLD : status === "error" ? 0 : word.correctStreak ?? 0,
+    });
+    setStatusOffer(null);
   }
   function addParsed(items: Word[]) {
     if (!items.length) { setImportStatus("Не удалось найти пары. Используйте формат: word — перевод"); return; }
@@ -485,25 +581,63 @@ export default function Home() {
       setImportStatus("Не удалось прочитать файл. Проверьте формат и попробуйте ещё раз.");
     }
   }
+  function changePracticePromptMode(mode: PracticePromptMode) {
+    setPracticePromptMode(mode);
+    setRevealed(false);
+    setCardFlash(null);
+    setFeedback("idle");
+    setAnswer("");
+    setSpeechMessage("");
+    setStatusOffer(null);
+    setMatched([]);
+    setMatchLeft(null);
+    setMatchRight(null);
+    setMatchFlash(null);
+  }
   function checkAnswer() {
-    if (!current) return;
-    const ok = answer.trim().toLowerCase() === current.target.trim().toLowerCase();
+    if (!current || !currentSides) return;
+    const ok = answer.trim().toLowerCase() === currentSides.answer.trim().toLowerCase();
+    const { patch } = practicePatch(current, ok);
     setFeedback(ok ? "success" : "error");
-    if (!ok) updateWord(current.id, { status: "error", errorCount: current.errorCount + 1 });
+    updateWord(current.id, patch);
   }
   function chooseMatch(side: "left" | "right", value: string) {
-    const left = side === "left" ? value : matchLeft; const right = side === "right" ? value : matchRight;
+    if (matchFlash) return;
+    const left = side === "left" ? value : matchLeft;
+    const right = side === "right" ? value : matchRight;
     if (side === "left") setMatchLeft(value);
     else setMatchRight(value);
     if (left && right) {
-      const word = matchWords.find((item) => item.id === left);
-      if (word?.target === right) setMatched((items) => [...new Set([...items, word.id])]);
-      else if (word) updateWord(word.id, { status: "error", errorCount: word.errorCount + 1 });
-      window.setTimeout(() => { setMatchLeft(null); setMatchRight(null); }, 260);
+      const pair = matchPairs.find((item) => item.word.id === left);
+      const word = pair?.word;
+      const ok = Boolean(pair && pair.right === right);
+      setMatchFlash(ok ? "success" : "error");
+      if (word) {
+        const { patch } = practicePatch(word, ok);
+        updateWord(word.id, patch);
+      }
+      window.setTimeout(() => {
+        if (ok && word) setMatched((items) => [...new Set([...items, word.id])]);
+        setMatchLeft(null);
+        setMatchRight(null);
+        setMatchFlash(null);
+      }, ok ? 520 : 580);
     }
   }
+  function speakVisible(word: Word, showAnswer = false) {
+    const sides = getPracticeSides(word, practicePromptMode);
+    const text = showAnswer ? sides.answer : sides.prompt;
+    const lang = showAnswer ? sides.answerLang : sides.promptLang;
+    speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = langCode[lang] ?? "en-US";
+    speechSynthesis.speak(utterance);
+  }
   function speak(word: Word) {
-    speechSynthesis.cancel(); const utterance = new SpeechSynthesisUtterance(word.source); utterance.lang = langCode[word.sourceLang] ?? "en-US"; speechSynthesis.speak(utterance);
+    speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(word.source);
+    utterance.lang = langCode[word.sourceLang] ?? "en-US";
+    speechSynthesis.speak(utterance);
   }
   function startVoiceInput() {
     if (!current) return;
@@ -513,7 +647,7 @@ export default function Home() {
     if (!Recognition) { setSpeechMessage("Голосовой ввод не поддерживается этим браузером."); return; }
     const recognition = new Recognition();
     recognitionRef.current = recognition;
-    recognition.lang = langCode[current.targetLang] ?? "ru-RU";
+    recognition.lang = langCode[currentSides?.answerLang ?? current.targetLang] ?? "ru-RU";
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
     recognition.onresult = (event) => { setAnswer(event.results[0][0].transcript); setFeedback("idle"); setSpeechMessage("Ответ распознан — можно проверить."); };
@@ -606,7 +740,6 @@ export default function Home() {
                 <details className="export-menu">
                   <summary><span className="material-symbols-outlined export-icon" aria-hidden="true">download</span>Скачать словарь</summary>
                   <div role="menu" aria-label="Как скачать словарь">
-                    <p className="export-menu-hint">Выберите, что хотите сделать со словами</p>
                     {([
                       ["csv", "CSV", "Открыть в Excel", "Таблица со словами, датами и статусами — удобно смотреть и фильтровать"],
                       ["txt", "TXT", "Потом загрузить обратно", "Список, который можно снова импортировать в Lingua"],
@@ -651,10 +784,20 @@ export default function Home() {
         <div className="content-scroll">
           {view === "library" && (filteredWords.length ? <LibraryView words={filteredWords} editId={editId} setEditId={setEditId} updateWord={updateWord} setWords={setWords} speak={speak} onStartTraining={(date) => startPractice("all", date)} /> : <LibraryEmptyState query={search.trim()} hasDictionaryMatch={hasDictionaryMatch} similarWords={similarWords} onSelectSuggestion={(word) => { setScope("all"); setSelectedDates([]); setSearch(word.source); }} onAddSingle={() => { setSingleSource(search.trim()); setSingleTarget(""); openAdd("single"); }} onUpload={() => openAdd("file")} onReset={() => { setScope("all"); setSelectedDates([]); }} />)}
           {view === "calendar" && <CalendarView cells={calendarCells} words={dictionaryWords} dateCounts={dateCounts} selectedDate={selectedDate} onSelectDate={(date) => { setSelectedDate(date); setScope("all"); setSearch(""); setView("library"); }} />}
-          {isTraining && <TrainingHeader view={view as "cards" | "match" | "type"} count={practiceWords.length} selectedDate={selectedDate} sourceLang={currentDictionary.sourceLang} targetLang={currentDictionary.targetLang} onChange={openTraining} />}
-          {view === "cards" && (current ? <div className="practice-body"><div className="session-line"><span>{cardIndex % practiceWords.length + 1} из {practiceWords.length}</span><i><b style={{ width: `${((cardIndex % practiceWords.length + 1) / practiceWords.length) * 100}%` }} /></i></div><div className="flashcard-wrap"><div className={`flashcard ${revealed ? "revealed" : ""}`}><small>{revealed ? current.targetLang : current.sourceLang}</small><div className="flashcard-word"><strong>{revealed ? current.target : current.source}</strong><button type="button" className="play-word" onClick={() => speak(current)} aria-label={`Прослушать слово «${current.source}»`}><span className="material-symbols-outlined" aria-hidden="true">brand_awareness</span></button></div><button type="button" className="flashcard-reveal" onClick={() => setRevealed(!revealed)}>{revealed ? "Скрыть перевод" : "Показать перевод"}</button></div></div><div className="card-actions"><div className="card-actions-main"><button type="button" className="danger" onClick={() => markCurrent("error")}>Ошибка</button><button type="button" className="success" onClick={() => markCurrent("known")}>Знаю</button></div><button type="button" className="card-actions-skip" onClick={() => markCurrent("learning")}>Следующее слово</button></div></div> : <EmptyPractice onAdd={() => openAdd()} />)}
-          {view === "match" && (matchWords.length ? <div className="pairs"><div>{matchWords.map(word => <button disabled={matched.includes(word.id)} className={matchLeft === word.id ? "selected" : matched.includes(word.id) ? "done" : ""} onClick={() => chooseMatch("left", word.id)} key={word.id}>{word.source}</button>)}</div><div>{matchTranslations.map(word => <button disabled={matched.includes(word.id)} className={matchRight === word.target ? "selected" : matched.includes(word.id) ? "done" : ""} onClick={() => chooseMatch("right", word.target)} key={word.id}>{word.target}</button>)}</div></div> : <EmptyPractice onAdd={() => openAdd()} />)}
-          {view === "type" && (current ? <div className="type-practice"><span>{current.sourceLang}</span><h2>{current.source}</h2><button className="listen-word type-listen" onClick={() => speak(current)}>Прослушать слово</button><label htmlFor="answer">Перевод</label><div className={`answer ${feedback}`}><input id="answer" value={answer} onChange={event => { setAnswer(event.target.value); setFeedback("idle"); setSpeechMessage(""); }} onKeyDown={event => event.key === "Enter" && checkAnswer()} placeholder="Введите ответ"/><button className={`voice-input ${listening ? "listening" : ""}`} onClick={startVoiceInput}>{listening ? "Остановить запись" : "Голосовой ввод"}</button><button onClick={checkAnswer}>Проверить</button></div>{speechMessage && <p className="speech-message" role="status">{speechMessage}</p>}{feedback === "success" && <p className="feedback success-text">Верно. Слово перенесено в «Без ошибок».</p>}{feedback === "error" && <p className="feedback error-text">Правильный ответ: <b>{current.target}</b>. Слово добавлено в ошибки.</p>}<button className="next-button" onClick={() => { if (feedback === "success") markCurrent("known"); else { setCardIndex(i => i + 1); setAnswer(""); setFeedback("idle"); setSpeechMessage(""); } }}>Следующее слово</button></div> : <EmptyPractice onAdd={() => openAdd()} />)}
+          {isTraining && <TrainingHeader view={view as "cards" | "match" | "type"} count={practiceWords.length} selectedDate={selectedDate} sourceLang={currentDictionary.sourceLang} targetLang={currentDictionary.targetLang} promptMode={practicePromptMode} onPromptModeChange={changePracticePromptMode} onChange={openTraining} />}
+          {view === "cards" && (current && currentSides ? <div className="practice-body"><div className="session-line"><span>{cardIndex % practiceWords.length + 1} из {practiceWords.length}</span><i><b style={{ width: `${((cardIndex % practiceWords.length + 1) / practiceWords.length) * 100}%` }} /></i></div><div className="flashcard-wrap"><div className={`flashcard ${revealed ? "is-revealed" : ""} ${cardFlash === "success" ? "flash-ok" : cardFlash === "error" ? "flash-bad" : ""}`}><div className="flashcard-face" key={`${current.id}-${revealed ? "back" : "front"}`}><small>{revealed ? currentSides.answerLang : currentSides.promptLang}</small><div className="flashcard-word"><strong>{revealed ? currentSides.answer : currentSides.prompt}</strong><button type="button" className="play-word" onClick={() => speakVisible(current, revealed)} aria-label={`Прослушать слово «${revealed ? currentSides.answer : currentSides.prompt}»`}><span className="material-symbols-outlined" aria-hidden="true">brand_awareness</span></button></div></div><button type="button" className="flashcard-reveal" disabled={Boolean(cardFlash)} onClick={() => setRevealed(!revealed)}>{revealed ? "Скрыть перевод" : "Показать перевод"}</button></div></div><div className="card-actions"><div className="card-actions-main"><button type="button" className="danger" disabled={Boolean(cardFlash)} onClick={() => markCurrent("error")}>Повторять</button><button type="button" className="success" disabled={Boolean(cardFlash)} onClick={() => markCurrent("known")}>Знаю</button></div><button type="button" className="card-actions-skip" disabled={Boolean(cardFlash)} onClick={() => markCurrent("learning")}>Следующее слово</button></div></div> : <EmptyPractice onAdd={() => openAdd()} />)}
+          {view === "match" && (matchWords.length ? <div className="practice-body match-practice"><div className="pairs"><div>{matchPairs.map(({ word, left }) => {
+            const active = matchLeft === word.id;
+            const done = matched.includes(word.id);
+            const flash = active && matchFlash ? (matchFlash === "success" ? "flash-ok" : "flash-bad") : "";
+            return <button disabled={done || Boolean(matchFlash)} className={[active ? "selected" : "", done ? "done" : "", flash].filter(Boolean).join(" ")} onClick={() => chooseMatch("left", word.id)} key={word.id}>{left}</button>;
+          })}</div><div>{matchTranslations.map(({ word, right }) => {
+            const active = matchRight === right;
+            const done = matched.includes(word.id);
+            const flash = active && matchFlash ? (matchFlash === "success" ? "flash-ok" : "flash-bad") : "";
+            return <button disabled={done || Boolean(matchFlash)} className={[active ? "selected" : "", done ? "done" : "", flash].filter(Boolean).join(" ")} onClick={() => chooseMatch("right", right)} key={`${word.id}-right`}>{right}</button>;
+          })}</div></div></div> : <EmptyPractice onAdd={() => openAdd()} />)}
+          {view === "type" && (current && currentSides ? <div className="practice-body"><div className="session-line"><span>{cardIndex % practiceWords.length + 1} из {practiceWords.length}</span><i><b style={{ width: `${((cardIndex % practiceWords.length + 1) / practiceWords.length) * 100}%` }} /></i></div><div className="type-practice"><div className="type-card"><small>{currentSides.promptLang}</small><div className="type-word"><strong>{currentSides.prompt}</strong><button type="button" className="play-word" onClick={() => speakVisible(current)} aria-label={`Прослушать слово «${currentSides.prompt}»`}><span className="material-symbols-outlined" aria-hidden="true">brand_awareness</span></button></div><div className="type-card-spacer" aria-hidden="true"></div></div><div className="type-answer"><label htmlFor="answer">Перевод</label><div className={`answer ${feedback}`}><input id="answer" value={answer} onChange={event => { setAnswer(event.target.value); setFeedback("idle"); setSpeechMessage(""); setStatusOffer(null); }} onKeyDown={event => event.key === "Enter" && checkAnswer()} placeholder="Введите ответ" aria-label="Перевод" /><button type="button" className={`voice-input ${listening ? "listening" : ""}`} onClick={startVoiceInput} aria-label={listening ? "Остановить запись" : "Голосовой ввод"}><span className="material-symbols-outlined" aria-hidden="true">mic</span>{listening ? "Остановить запись" : "Голосовой ввод"}</button><button type="button" className="check-answer" onClick={checkAnswer}>Проверить</button></div>{speechMessage && <p className="speech-message" role="status">{speechMessage}</p>}{feedback === "success" && <p className="feedback success-text">{(current.correctStreak ?? 0) >= STATUS_THRESHOLD ? "Верно! Слово добавлено в раздел «Без ошибок»." : `Верно! До добавления в раздел «Без ошибок» осталось ${STATUS_THRESHOLD - (current.correctStreak ?? 0)} верных подряд.`}{current.status !== "error" && <> <span className="feedback-sep" aria-hidden="true">·</span> <FeedbackMoveLink status="error" onMove={(status) => applyStatusMove(current.id, status)} /></>}</p>}{feedback === "error" && <p className="feedback error-text">{current.errorCount >= STATUS_THRESHOLD ? <>Правильный ответ: <b>{currentSides.answer}</b>. Слово добавлено в раздел «С ошибками».</> : <>Правильный ответ: <b>{currentSides.answer}</b>. До добавления в раздел «С ошибками» осталось {STATUS_THRESHOLD - current.errorCount} ошибок подряд.</>}{current.status !== "known" && <> <span className="feedback-sep" aria-hidden="true">·</span> <FeedbackMoveLink status="known" onMove={(status) => applyStatusMove(current.id, status)} /></>}</p>}<button type="button" className="card-actions-skip type-next" onClick={() => { setCardIndex(i => i + 1); setAnswer(""); setFeedback("idle"); setSpeechMessage(""); setStatusOffer(null); }}>Следующее слово</button></div></div></div> : <EmptyPractice onAdd={() => openAdd()} />)}
         </div>
       </section>
 
@@ -697,7 +840,7 @@ export default function Home() {
             <p>{isCreatingDictionary ? "НОВЫЙ СЛОВАРЬ" : "ЛИЧНЫЙ СЛОВАРЬ"}</p>
             <h2 id="add-title">{isCreatingDictionary ? "Создать словарь и добавить слова" : "Добавить слова"}</h2>
           </div>
-          <button className="close" onClick={closeAdd} aria-label="Закрыть">×</button>
+          <button className="close" onClick={closeAdd} aria-label="Закрыть"><span className="material-symbols-outlined" aria-hidden="true">close</span></button>
         </header>
 
         <div className="import-dictionary">
@@ -812,7 +955,7 @@ export default function Home() {
             <span>TXT, CSV, DOCX, PDF, PNG, JPG, WEBP</span>
             <small>Текст распознаётся автоматически. Перед добавлением вы сможете проверить пары.</small>
           </button>
-          <p className="privacy-note">Файл обрабатывается в браузере и не сохраняется на сервере.</p>
+          <button type="button" className="primary full" disabled>Добавить слова из файла</button>
         </div>}
 
         {addMode === "single" && <div className="single-pane">
@@ -923,7 +1066,7 @@ function TrainingFilters({ scope, total, clean, errors, unlearned, onChange }: {
   </section>;
 }
 
-function TrainingHeader({ view, count, selectedDate, sourceLang, targetLang, onChange }: { view: "cards" | "match" | "type"; count: number; selectedDate: string | null; sourceLang: string; targetLang: string; onChange: (view: "cards" | "match" | "type") => void }) {
+function TrainingHeader({ view, count, selectedDate, sourceLang, targetLang, promptMode, onPromptModeChange, onChange }: { view: "cards" | "match" | "type"; count: number; selectedDate: string | null; sourceLang: string; targetLang: string; promptMode: PracticePromptMode; onPromptModeChange: (mode: PracticePromptMode) => void; onChange: (view: "cards" | "match" | "type") => void }) {
   const formats = [
     { id: "cards", label: "Карточки" },
     { id: "match", label: "Пары" },
@@ -931,7 +1074,24 @@ function TrainingHeader({ view, count, selectedDate, sourceLang, targetLang, onC
   ] as const;
   return <section className="training-heading">
     <header className="content-head practice-heading"><div><p>Тренировка</p><h2>{sourceLang} — {targetLang}</h2></div><span>{selectedDate ? formatDate(selectedDate) : formatWordCount(count)}</span></header>
-    <nav className="practice-format-chips" aria-label="Формат тренировки">{formats.map(format => <button key={format.id} className={view === format.id ? "active" : ""} aria-pressed={view === format.id} onClick={() => onChange(format.id)}>{format.label}</button>)}</nav>
+    <div className="practice-format-row">
+      <nav className="practice-format-chips" aria-label="Формат тренировки">{formats.map(format => <button key={format.id} className={view === format.id ? "active" : ""} aria-pressed={view === format.id} onClick={() => onChange(format.id)}>{format.label}</button>)}</nav>
+      <div className="practice-lang">
+        <span className="practice-lang-label" id="practice-lang-label">Слова</span>
+        <MenuSelect
+          className="practice-lang-menu"
+          ariaLabel="Язык показа"
+          labelId="practice-lang-label"
+          value={promptMode}
+          options={[
+            { value: "source", label: `на ${sourceLang}` },
+            { value: "target", label: `на ${targetLang}` },
+            { value: "mixed", label: "вперемешку" },
+          ]}
+          onChange={(value) => onPromptModeChange(value as PracticePromptMode)}
+        />
+      </div>
+    </div>
   </section>;
 }
 
@@ -965,6 +1125,14 @@ function WordStatusMenu({ word, onChange }: { word: Word; onChange: (status: Wor
   />;
 }
 
+function FeedbackMoveLink({ status, onMove }: { status: WordStatus; onMove: (status: WordStatus) => void }) {
+  return (
+    <button type="button" className="feedback-move" onClick={() => onMove(status)}>
+      Перенести в «{STATUS_LABEL[status]}»
+    </button>
+  );
+}
+
 function LibraryView({ words, editId, setEditId, updateWord, setWords, speak, onStartTraining }: { words: Word[]; editId: string | null; setEditId: (id: string | null) => void; updateWord: (id: string, patch: Partial<Word>) => void; setWords: React.Dispatch<React.SetStateAction<Word[]>>; speak: (word: Word) => void; onStartTraining: (date: string) => void }) {
   const groups = words.reduce<Record<string, Word[]>>((result, word) => {
     result[word.addedAt] = [...(result[word.addedAt] ?? []), word];
@@ -975,7 +1143,7 @@ function LibraryView({ words, editId, setEditId, updateWord, setWords, speak, on
     <div className="word-table">{items.map(word => editId === word.id ? <div className="word-row editing" key={word.id}><input aria-label="Редактировать слово" value={word.source} onChange={event => updateWord(word.id, { source: event.target.value })}/><input aria-label="Редактировать перевод" value={word.target} onChange={event => updateWord(word.id, { target: event.target.value })}/><input aria-label="Дата добавления" type="date" value={word.addedAt} onChange={event => updateWord(word.id, { addedAt: event.target.value })}/><button className="edit-done" onClick={() => setEditId(null)}>Готово</button></div> : <div className="word-row" key={word.id}>
       <div className="word-copy"><span className="source-cell"><b>{word.source}</b><button className="play-word" onClick={() => speak(word)} aria-label={`Прослушать слово «${word.source}»`}><span className="material-symbols-outlined" aria-hidden="true">brand_awareness</span></button></span><strong>{word.target}</strong></div>
       <div className="row-controls">
-        <WordStatusMenu word={word} onChange={status => updateWord(word.id, { status, errorCount: status === "error" ? Math.max(1, word.errorCount) : status === "known" ? 0 : word.errorCount })} />
+        <WordStatusMenu word={word} onChange={status => updateWord(word.id, { status, errorCount: status === "error" ? Math.max(1, word.errorCount) : status === "known" ? 0 : word.errorCount, correctStreak: status === "known" ? STATUS_THRESHOLD : status === "error" ? 0 : word.correctStreak ?? 0 })} />
         <div className="row-actions"><button aria-label={`Изменить слово «${word.source}»`} title="Изменить" onClick={() => setEditId(word.id)}><span className="material-symbols-outlined action-icon edit-icon" aria-hidden="true">edit</span></button><button className="delete" aria-label={`Удалить слово «${word.source}»`} title="Удалить" onClick={() => window.confirm(`Удалить «${word.source}» из словаря?`) && setWords(currentWords => currentWords.filter(item => item.id !== word.id))}><span className="material-symbols-outlined action-icon delete-icon" aria-hidden="true">delete</span></button></div>
       </div>
     </div>)}</div>
