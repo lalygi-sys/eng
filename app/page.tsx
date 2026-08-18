@@ -75,6 +75,89 @@ function normalizeForMatch(value: string) {
   return value.toLocaleLowerCase("ru-RU").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
+/** Heuristic: keep real words/short idioms, drop OCR junk, UI copy, sentences. */
+function isOcrGlitch(value: string): boolean {
+  const text = value.trim();
+  if (!text) return true;
+  if (/(.)\1{4,}/.test(text)) return true;
+  if (/[a-zA-Z][а-яА-ЯёЁ][a-zA-Z]|[а-яА-ЯёЁ][a-zA-Z][а-яА-ЯёЁ]/.test(text.replace(/\s+/g, ""))) return true;
+  const letters = text.replace(/[^\p{L}]/gu, "");
+  if (letters.length < 2) return true;
+  if (letters.length / text.length < 0.45 && text.length > 4) return true;
+  const weird = text.match(/[^0-9A-Za-zА-Яа-яёЁ\s—–\-.,'()/]/g);
+  if ((weird?.length ?? 0) > 2) return true;
+  return false;
+}
+
+function isLatinText(value: string): boolean {
+  const letters = value.replace(/[^\p{L}]/gu, "");
+  if (letters.length < 2) return false;
+  return (letters.match(/[A-Za-z]/g)?.length ?? 0) / letters.length >= 0.8;
+}
+
+function isCyrillicText(value: string): boolean {
+  const letters = value.replace(/[^\p{L}]/gu, "");
+  if (letters.length < 2) return false;
+  return (letters.match(/[а-яА-ЯёЁ]/g)?.length ?? 0) / letters.length >= 0.8;
+}
+
+function cleanOcrLine(line: string): string {
+  return line
+    .replace(/[|]/g, "l")
+    .replace(/[`´]/g, "'")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function sanitizeOcrText(text: string): string {
+  return text
+    .replace(/\r/g, "")
+    .split("\n")
+    .map(cleanOcrLine)
+    .filter((line) => line.length > 0)
+    .join("\n");
+}
+
+function isVocabularyCandidate(value: string): boolean {
+  const text = value.trim().replace(/^["'«»]+|["'«»]+$/g, "");
+  if (text.length < 2 || text.length > 42) return false;
+  if (isOcrGlitch(text)) return false;
+  const words = text.split(/\s+/).filter(Boolean);
+  if (!words.length || words.length > 4) return false;
+  if (/^[0-9]+([.,][0-9]+)?$/.test(text)) return false;
+  if (/[\\/<>{}[\]|=@#$%^*`~]/.test(text)) return false;
+  if (/https?:\/\//i.test(text) || /www\./i.test(text)) return false;
+  if (/[{;}]/.test(text) || /=>/.test(text) || /<\/?[a-z]/i.test(text)) return false;
+  const withoutAbbrev = text
+    .replace(/\b(?:[A-ZА-Я]\.){2,}/g, "")
+    .replace(/\b(?:т\.д|т\.п|и\.т\.д|e\.g|i\.e)\b/gi, "");
+  if (/[.!?…]/.test(withoutAbbrev)) return false;
+  if (/^(coming soon|stay tuned|website under development|under construction|all rights reserved|lorem ipsum|click here|learn more|read more|sign up|log in|subscribe)\b/i.test(text)) {
+    return false;
+  }
+  if (/^(скоро|в разработке|следите за|сайт в разработке|подпишитесь|войти|регистрация)\b/i.test(text)) {
+    return false;
+  }
+  const letters = text.replace(/[^\p{L}]/gu, "");
+  if (letters.length < 2) return false;
+  if ((text.match(/\d/g)?.length ?? 0) / text.length > 0.25) return false;
+  const hasLatin = /[a-zA-Z]/.test(letters);
+  const hasCyrillic = /[а-яА-ЯёЁ]/.test(letters);
+  if (hasLatin && hasCyrillic) return false;
+  if (hasLatin && words.length === 1 && letters.length <= 3) return /[aeiouy]/i.test(letters);
+  if (hasLatin && !/[aeiouy]/i.test(letters) && words.length > 1) return false;
+  if (hasCyrillic && !/[аеёиоуыэюя]/i.test(letters) && words.length > 1) return false;
+  if (words.length >= 3 && /^(select|click|press|choose|open|close|drag|activate|website|please|welcome|screenshot|выберите|нажмите|откройте|закройте|добро пожаловать)/i.test(words[0])) {
+    return false;
+  }
+  if (words.length >= 3 && text.includes(",")) return false;
+  return true;
+}
+
+function hasPairSeparator(line: string) {
+  return /\t|;|\s+[—–→=]\s+|\s+-\s+|:\s+/.test(line) || (line.includes(",") && /[a-zа-яё]/i.test(line.split(",")[0] ?? ""));
+}
+
 function levenshteinDistance(left: string, right: string) {
   const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
   for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
@@ -128,17 +211,67 @@ const translationLanguageCode: Record<string, string> = {
 };
 
 async function translateText(value: string, sourceLanguage: string, targetLanguage: string) {
+  const suggestions = await translateSuggestions(value, sourceLanguage, targetLanguage);
+  return suggestions[0] ?? "";
+}
+
+async function translateSuggestions(value: string, sourceLanguage: string, targetLanguage: string): Promise<string[]> {
+  const trimmed = value.trim();
+  if (!trimmed) return [];
   const source = translationLanguageCode[sourceLanguage] ?? "auto";
   const target = translationLanguageCode[targetLanguage] ?? "ru";
-  if (source === target) return value;
-  const params = new URLSearchParams({ client: "gtx", sl: source, tl: target, dt: "t", q: value });
+  if (source === target) return [];
+  const params = new URLSearchParams({ client: "gtx", sl: source, tl: target, q: trimmed });
+  params.append("dt", "t");
+  params.append("dt", "bd");
+  params.append("dt", "at");
   try {
     const response = await fetch(`https://translate.googleapis.com/translate_a/single?${params.toString()}`);
-    if (!response.ok) return "";
-    const payload = await response.json() as Array<Array<Array<string>>>;
-    return payload[0]?.map((segment) => segment[0] ?? "").join("").trim() ?? "";
+    if (!response.ok) return [];
+    const payload = await response.json() as unknown[];
+    const found: string[] = [];
+    const pushUnique = (item: string) => {
+      const clean = item.trim();
+      if (!clean) return;
+      if (normalizeForMatch(clean) === normalizeForMatch(trimmed)) return;
+      if (found.some((existing) => normalizeForMatch(existing) === normalizeForMatch(clean))) return;
+      found.push(clean);
+    };
+
+    const segments = payload[0];
+    if (Array.isArray(segments)) {
+      const primary = segments.map((segment) => (Array.isArray(segment) ? String(segment[0] ?? "") : "")).join("").trim();
+      if (primary) pushUnique(primary);
+    }
+
+    const dictionary = payload[1];
+    if (Array.isArray(dictionary)) {
+      for (const entry of dictionary) {
+        if (!Array.isArray(entry)) continue;
+        const terms = entry[1];
+        if (!Array.isArray(terms)) continue;
+        for (const term of terms) {
+          if (typeof term === "string") pushUnique(term);
+          else if (Array.isArray(term) && typeof term[0] === "string") pushUnique(term[0]);
+        }
+      }
+    }
+
+    const alternatives = payload[5];
+    if (Array.isArray(alternatives)) {
+      for (const block of alternatives) {
+        if (!Array.isArray(block)) continue;
+        const list = block[2];
+        if (!Array.isArray(list)) continue;
+        for (const item of list) {
+          if (Array.isArray(item) && typeof item[0] === "string") pushUnique(item[0]);
+        }
+      }
+    }
+
+    return found.slice(0, 5);
   } catch {
-    return "";
+    return [];
   }
 }
 
@@ -147,6 +280,20 @@ function normalizeDate(value: string, fallback = TODAY) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
   const parts = clean.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/);
   return parts ? `${parts[3]}-${parts[2].padStart(2, "0")}-${parts[1].padStart(2, "0")}` : fallback;
+}
+
+function makePreviewWord(source: string, target: string, addedAt: string, sourceLanguage: string, targetLanguage: string): Word {
+  return {
+    id: uid(),
+    source,
+    target,
+    addedAt,
+    sourceLang: sourceLanguage === LANGUAGES[0] ? detectLanguage(source) : sourceLanguage,
+    targetLang: targetLanguage === LANGUAGES[0] ? detectLanguage(target) : targetLanguage,
+    status: "learning",
+    errorCount: 0,
+    correctStreak: 0,
+  };
 }
 
 function parsePairs(text: string, fallbackDate: string, sourceLanguage: string, targetLanguage: string): Word[] {
@@ -161,13 +308,96 @@ function parsePairs(text: string, fallbackDate: string, sourceLanguage: string, 
     if (parts.length < 2 && line.includes(",")) parts = line.split(",").map((item) => item.replace(/^"|"$/g, "").trim()).filter(Boolean);
     if (parts.length < 2 && line.includes(":")) parts = line.split(/:\s+/).map((item) => item.trim()).filter(Boolean);
     let rowDate = currentDate;
-    if (/^(\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4})$/.test(parts[0])) rowDate = normalizeDate(parts.shift()!, currentDate);
+    if (parts[0] && /^(\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4})$/.test(parts[0])) rowDate = normalizeDate(parts.shift()!, currentDate);
+    if (!parts.length) continue;
     const source = parts.shift()!;
     const target = parts.join("; ").trim();
     if (/^(word|слово|english)$/i.test(source) && /^(translation|перевод|russian)$/i.test(target)) continue;
-    result.push({ id: uid(), source, target, addedAt: rowDate, sourceLang: sourceLanguage === LANGUAGES[0] ? detectLanguage(source) : sourceLanguage, targetLang: targetLanguage === LANGUAGES[0] ? detectLanguage(target) : targetLanguage, status: "learning", errorCount: 0, correctStreak: 0 });
+    if (!target && !hasPairSeparator(line) && !isVocabularyCandidate(source)) continue;
+    if (!isVocabularyCandidate(source)) continue;
+    if (target && !isVocabularyCandidate(target) && target.length > 56) continue;
+    if (target && !isVocabularyCandidate(target) && /[\\/<>{}[\]|=]/.test(target)) continue;
+    result.push(makePreviewWord(source, target, rowDate, sourceLanguage, targetLanguage));
   }
   return result;
+}
+
+/** OCR lists often split EN/RU onto adjacent lines without a dash. */
+function parseOcrVocabulary(text: string, fallbackDate: string, sourceLanguage: string, targetLanguage: string): Word[] {
+  const cleaned = sanitizeOcrText(text).split("\n").filter(Boolean);
+  const seen = new Set<string>();
+  const result: Word[] = [];
+  const add = (source: string, target: string, addedAt = fallbackDate) => {
+    const src = source.trim();
+    const tgt = target.trim();
+    if (!src || !isVocabularyCandidate(src)) return;
+    if (tgt && !isVocabularyCandidate(tgt)) return;
+    const key = normalizeForMatch(src);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    result.push(makePreviewWord(src, tgt, addedAt, sourceLanguage, targetLanguage));
+  };
+
+  for (const word of parsePairs(text, fallbackDate, sourceLanguage, targetLanguage)) {
+    add(word.source, word.target, word.addedAt);
+  }
+
+  for (let index = 0; index < cleaned.length; index += 1) {
+    const line = cleaned[index];
+    if (hasPairSeparator(line)) continue;
+
+    const inline = line.match(/^(.+?)\s+[—–\-]\s+(.+)$/);
+    if (inline) {
+      add(inline[1], inline[2]);
+      continue;
+    }
+
+    const columns = line.match(/^(.+?)\s{2,}(.+)$/);
+    if (columns) {
+      const left = columns[1].trim();
+      const right = columns[2].trim();
+      if (isLatinText(left) && isCyrillicText(right)) {
+        add(left, right);
+        continue;
+      }
+      if (isCyrillicText(left) && isLatinText(right)) {
+        add(right, left);
+        continue;
+      }
+      if (isVocabularyCandidate(left) && isVocabularyCandidate(right)) {
+        add(left, right);
+        continue;
+      }
+    }
+
+    const next = cleaned[index + 1];
+    if (next && !hasPairSeparator(next)) {
+      if (isLatinText(line) && isCyrillicText(next) && isVocabularyCandidate(line) && isVocabularyCandidate(next)) {
+        add(line, next);
+        index += 1;
+        continue;
+      }
+      if (isCyrillicText(line) && isLatinText(next) && isVocabularyCandidate(next) && isVocabularyCandidate(line)) {
+        add(next, line);
+        index += 1;
+        continue;
+      }
+    }
+
+    if (isVocabularyCandidate(line) && !line.includes(" ")) {
+      add(line, "");
+    } else if (isVocabularyCandidate(line) && line.split(/\s+/).length <= 4) {
+      add(line, "");
+    }
+  }
+
+  return result;
+}
+
+function parseImportText(text: string, fallbackDate: string, sourceLanguage: string, targetLanguage: string, ocr = false): Word[] {
+  return ocr
+    ? parseOcrVocabulary(text, fallbackDate, sourceLanguage, targetLanguage)
+    : parsePairs(text, fallbackDate, sourceLanguage, targetLanguage);
 }
 
 function formatDate(value: string) {
@@ -184,6 +414,20 @@ function formatWordCount(count: number) {
   const word = lastTwo >= 11 && lastTwo <= 14 ? "слов" : last === 1 ? "слово" : last >= 2 && last <= 4 ? "слова" : "слов";
   return `${count} ${word}`;
 }
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} Б`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+}
+
+type UploadedFileInfo = {
+  name: string;
+  kind: "image" | "pdf" | "text" | "doc";
+  sizeLabel: string;
+  previewUrl: string | null;
+  snippet: string;
+};
 
 function formatDayCount(count: number) {
   const lastTwo = count % 100;
@@ -281,10 +525,18 @@ export default function Home() {
   const [addCalendarMonth, setAddCalendarMonth] = useState(() => new Date(`${TODAY}T12:00:00`));
   const [singleSource, setSingleSource] = useState("");
   const [singleTarget, setSingleTarget] = useState("");
+  const [singleSuggestions, setSingleSuggestions] = useState<string[]>([]);
+  const [singleSuggestSide, setSingleSuggestSide] = useState<"source" | "target" | null>(null);
+  const [singleSuggestStatus, setSingleSuggestStatus] = useState<"idle" | "loading" | "ready" | "unrecognized">("idle");
   const [previewWords, setPreviewWords] = useState<Word[]>([]);
   const [isTranslatingPreview, setIsTranslatingPreview] = useState(false);
+  const [unresolvedPreviewIds, setUnresolvedPreviewIds] = useState<string[]>([]);
   const [importStatus, setImportStatus] = useState("");
   const [fileName, setFileName] = useState("");
+  const [uploadedFile, setUploadedFile] = useState<UploadedFileInfo | null>(null);
+  const [filePreviewExpanded, setFilePreviewExpanded] = useState(false);
+  const [fileTextDraft, setFileTextDraft] = useState("");
+  const uploadedPreviewUrlRef = useRef<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest" | "alpha">("newest");
@@ -308,6 +560,7 @@ export default function Home() {
   useEffect(() => {
     return () => {
       if (cardFlashTimerRef.current) window.clearTimeout(cardFlashTimerRef.current);
+      if (uploadedPreviewUrlRef.current?.startsWith("blob:")) URL.revokeObjectURL(uploadedPreviewUrlRef.current);
     };
   }, []);
   useEffect(() => {
@@ -369,7 +622,10 @@ export default function Home() {
   const practiceWords = filteredWords;
   const current = practiceWords[cardIndex % Math.max(practiceWords.length, 1)];
   const currentSides = current ? getPracticeSides(current, practicePromptMode) : null;
-  const parsedPreviewWords = useMemo(() => parsePairs(bulkText, addDate, addSourceLang, addTargetLang), [bulkText, addDate, addSourceLang, addTargetLang]);
+  const parsedPreviewWords = useMemo(
+    () => parseImportText(bulkText, addDate, addSourceLang, addTargetLang, uploadedFile?.kind === "image"),
+    [bulkText, addDate, addSourceLang, addTargetLang, uploadedFile?.kind],
+  );
   const previewDictionary = addTargetId === "new"
     ? dictionaries.find((dictionary) => dictionary.sourceLang === newSourceLang && dictionary.targetLang === newTargetLang)
     : addTargetDictionary;
@@ -377,7 +633,40 @@ export default function Home() {
     ? words.filter((word) => (word.dictionaryId ?? DEFAULT_DICTIONARY_ID) === previewDictionary.id)
     : [];
   const existingPreviewSources = new Set(previewDictionaryWords.map((word) => normalizeForMatch(word.source)));
-  const importablePreviewWords = previewWords.filter((word) => word.source.trim() && word.target.trim() && !existingPreviewSources.has(normalizeForMatch(word.source)));
+  const unresolvedPreviewSet = useMemo(() => new Set(unresolvedPreviewIds), [unresolvedPreviewIds]);
+  const previewBuckets = useMemo(() => {
+    const recognized: Word[] = [];
+    const unrecognized: Word[] = [];
+    for (const word of previewWords) {
+      const duplicate = existingPreviewSources.has(normalizeForMatch(word.source));
+      const needsTranslation = !duplicate && (
+        unresolvedPreviewSet.has(word.id)
+        || !word.target.trim()
+        || normalizeForMatch(word.source) === normalizeForMatch(word.target)
+      );
+      if (needsTranslation) unrecognized.push(word);
+      else recognized.push(word);
+    }
+    return { recognized, unrecognized };
+  }, [previewWords, existingPreviewSources, unresolvedPreviewSet]);
+  const importablePreviewWords = previewBuckets.recognized.filter((word) => {
+    if (!word.source.trim() || !word.target.trim()) return false;
+    if (normalizeForMatch(word.source) === normalizeForMatch(word.target)) return false;
+    if (existingPreviewSources.has(normalizeForMatch(word.source))) return false;
+    return true;
+  });
+  const fileTextDirty = Boolean(uploadedFile) && fileTextDraft !== bulkText;
+  const fileTextDiff = useMemo(() => {
+    if (!fileTextDirty) return null;
+    const next = parseImportText(fileTextDraft, addDate, addSourceLang, addTargetLang, uploadedFile?.kind === "image");
+    const currentKeys = new Set(previewWords.map((word) => normalizeForMatch(word.source)));
+    const nextKeys = new Set(next.map((word) => normalizeForMatch(word.source)));
+    let added = 0;
+    let removed = 0;
+    for (const key of nextKeys) if (key && !currentKeys.has(key)) added += 1;
+    for (const key of currentKeys) if (key && !nextKeys.has(key)) removed += 1;
+    return { added, removed, nextCount: next.length };
+  }, [fileTextDirty, fileTextDraft, addDate, addSourceLang, addTargetLang, previewWords, uploadedFile?.kind]);
   const matchWords = practiceWords.slice(0, 6);
   const matchPairs = useMemo(() => matchWords.map((word) => {
     const sides = getPracticeSides(word, practicePromptMode);
@@ -394,6 +683,7 @@ export default function Home() {
       setPreviewWords(parsedPreviewWords);
       const missing = parsedPreviewWords.filter((word) => !word.target.trim());
       if (!missing.length) {
+        setUnresolvedPreviewIds([]);
         setIsTranslatingPreview(false);
         return;
       }
@@ -404,10 +694,18 @@ export default function Home() {
       })));
       if (cancelled) return;
       const translatedById = new Map(translations.map((translation) => [translation.id, translation.target]));
+      const failedIds: string[] = [];
       setPreviewWords((current) => current.map((word) => {
         if (word.target.trim()) return word;
-        return { ...word, target: translatedById.get(word.id) ?? "" };
+        const translated = (translatedById.get(word.id) ?? "").trim();
+        const looksResolved = Boolean(translated) && normalizeForMatch(translated) !== normalizeForMatch(word.source);
+        if (!looksResolved) {
+          failedIds.push(word.id);
+          return { ...word, target: "" };
+        }
+        return { ...word, target: translated };
       }));
+      setUnresolvedPreviewIds(failedIds);
       setIsTranslatingPreview(false);
     }, 350);
     return () => {
@@ -416,9 +714,50 @@ export default function Home() {
     };
   }, [parsedPreviewWords, addSourceLang, addTargetLang]);
 
+  useEffect(() => {
+    const source = singleSource.trim();
+    const target = singleTarget.trim();
+    if (newDictionaryLanguagesInvalid || (source && target) || (!source && !target)) {
+      setSingleSuggestions([]);
+      setSingleSuggestSide(null);
+      setSingleSuggestStatus("idle");
+      return;
+    }
+    const side: "source" | "target" = source && !target ? "target" : "source";
+    const query = side === "target" ? source : target;
+    const fromLang = side === "target" ? addSourceLang : addTargetLang;
+    const toLang = side === "target" ? addTargetLang : addSourceLang;
+    let cancelled = false;
+    setSingleSuggestStatus("loading");
+    setSingleSuggestSide(side);
+    setSingleSuggestions([]);
+    const timer = window.setTimeout(async () => {
+      const suggestions = await translateSuggestions(query, fromLang, toLang);
+      if (cancelled) return;
+      if (!suggestions.length) {
+        setSingleSuggestions([]);
+        setSingleSuggestStatus("unrecognized");
+        return;
+      }
+      setSingleSuggestions(suggestions);
+      setSingleSuggestStatus("ready");
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [singleSource, singleTarget, addSourceLang, addTargetLang, newDictionaryLanguagesInvalid]);
+
   function updateWord(id: string, patch: Partial<Word>) { setWords((items) => items.map((word) => word.id === id ? { ...word, ...patch } : word)); }
   function updatePreviewWord(id: string, patch: Pick<Partial<Word>, "source" | "target">) {
     setPreviewWords((items) => items.map((word) => word.id === id ? { ...word, ...patch } : word));
+    if (patch.target !== undefined) {
+      const nextTarget = patch.target.trim();
+      setUnresolvedPreviewIds((ids) => {
+        if (!nextTarget) return ids.includes(id) ? ids : [...ids, id];
+        return ids.filter((item) => item !== id);
+      });
+    }
   }
   function selectDictionary(dictionary: Dictionary) {
     setSelectedDictionaryId(dictionary.id);
@@ -427,6 +766,14 @@ export default function Home() {
     setScope("all");
     resetPracticeState();
     setView("library");
+  }
+  function clearUploadedFile() {
+    if (uploadedPreviewUrlRef.current?.startsWith("blob:")) URL.revokeObjectURL(uploadedPreviewUrlRef.current);
+    uploadedPreviewUrlRef.current = null;
+    setUploadedFile(null);
+    setFilePreviewExpanded(false);
+    setFileTextDraft("");
+    setFileName("");
   }
   function openAdd(mode: AddMode = "paste", target: "current" | "new" = "current") {
     setAddMode(mode);
@@ -445,6 +792,7 @@ export default function Home() {
     setAddDateOpen(false);
     setAddOpen(false);
     setImportStatus("");
+    clearUploadedFile();
   }
   function resolveAddDictionary(): Dictionary | null {
     if (isCreatingDictionary) {
@@ -549,33 +897,77 @@ export default function Home() {
     if (!singleSource.trim() || !singleTarget.trim()) { setImportStatus("Заполните слово и перевод"); return; }
     addParsed(parsePairs(`${singleSource.trim()} — ${singleTarget.trim()}`, addDate, addSourceLang, addTargetLang));
     setSingleSource(""); setSingleTarget("");
+    setSingleSuggestions([]);
+    setSingleSuggestSide(null);
+    setSingleSuggestStatus("idle");
   }
   async function extractFile(file: File) {
-    setFileName(file.name); setImportStatus("Читаю файл…");
-    const extension = file.name.split(".").pop()?.toLowerCase();
+    setFileName(file.name);
+    setImportStatus("Читаю файл…");
+    const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
     try {
       let text = "";
-      if (["txt", "csv", "tsv"].includes(extension ?? "")) text = await file.text();
-      else if (extension === "docx") {
+      let kind: UploadedFileInfo["kind"] = "doc";
+      let previewUrl: string | null = null;
+
+      if (["txt", "csv", "tsv"].includes(extension)) {
+        text = await file.text();
+        kind = "text";
+      } else if (extension === "docx") {
         const mammoth = await import("mammoth");
         text = (await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() })).value;
+        kind = "doc";
       } else if (extension === "pdf") {
+        kind = "pdf";
         const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
         pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/legacy/build/pdf.worker.min.mjs", import.meta.url).toString();
         const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
         for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
           const content = await (await pdf.getPage(pageNumber)).getTextContent();
-          text += `${content.items.map((item) => "str" in item ? item.str : "").join(" ")}\n`;
+          text += `${content.items.map((item) => ("str" in item ? item.str : "")).join(" ")}\n`;
+        }
+        try {
+          const page = await pdf.getPage(1);
+          const viewport = page.getViewport({ scale: 1.15 });
+          const canvas = document.createElement("canvas");
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          const context = canvas.getContext("2d");
+          if (context) {
+            await page.render({ canvasContext: context, viewport }).promise;
+            previewUrl = canvas.toDataURL("image/jpeg", 0.82);
+          }
+        } catch {
+          previewUrl = null;
         }
       } else if (file.type.startsWith("image/")) {
+        kind = "image";
         setImportStatus("Распознаю текст на изображении…");
-        const { createWorker } = await import("tesseract.js");
+        previewUrl = URL.createObjectURL(file);
+        const { createWorker, PSM } = await import("tesseract.js");
         const worker = await createWorker("eng+rus");
-        text = (await worker.recognize(file)).data.text;
+        await worker.setParameters({
+          tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
+        });
+        text = sanitizeOcrText((await worker.recognize(file)).data.text);
         await worker.terminate();
       } else throw new Error("unsupported");
-      setBulkText(text); setAddMode("paste");
-      const count = parsePairs(text, addDate, addSourceLang, addTargetLang).length;
+
+      if (uploadedPreviewUrlRef.current?.startsWith("blob:")) URL.revokeObjectURL(uploadedPreviewUrlRef.current);
+      uploadedPreviewUrlRef.current = previewUrl?.startsWith("blob:") ? previewUrl : null;
+
+      setUploadedFile({
+        name: file.name,
+        kind,
+        sizeLabel: formatBytes(file.size),
+        previewUrl,
+        snippet: text.replace(/\s+/g, " ").trim().slice(0, 280),
+      });
+      setBulkText(text);
+      setFileTextDraft(text);
+      setAddMode("file");
+      setFilePreviewExpanded(false);
+      const count = parseImportText(text, addDate, addSourceLang, addTargetLang, kind === "image").length;
       setImportStatus(count ? `Распознано строк: ${count}. Проверьте слова и переводы перед добавлением.` : "Текст извлечён, но слова не найдены.");
     } catch {
       setImportStatus("Не удалось прочитать файл. Проверьте формат и попробуйте ещё раз.");
@@ -656,6 +1048,54 @@ export default function Home() {
     setSpeechMessage("Говорите перевод…");
     setListening(true);
     recognition.start();
+  }
+
+  function renderImportPreviewRows(words: Word[], mode: "recognized" | "unrecognized") {
+    return words.map((word) => {
+      const duplicate = existingPreviewSources.has(normalizeForMatch(word.source));
+      const needsTranslation = mode === "unrecognized";
+      return (
+        <div className={`import-preview-row ${duplicate ? "duplicate" : ""} ${needsTranslation ? "needs-translation" : ""}`} key={word.id}>
+          <input aria-label="Слово" value={word.source} onChange={(event) => updatePreviewWord(word.id, { source: event.target.value })} />
+          <i aria-hidden="true">→</i>
+          <input
+            className={needsTranslation ? "target-input" : undefined}
+            aria-label={`Перевод слова ${word.source}`}
+            value={word.target}
+            onChange={(event) => updatePreviewWord(word.id, { target: event.target.value })}
+            placeholder={isTranslatingPreview ? "Определяем перевод…" : needsTranslation ? "Перевод не распознан" : "Введите перевод"}
+          />
+          <small>{duplicate ? "Уже в словаре" : needsTranslation ? "Не распознано" : formatInputDate(word.addedAt)}</small>
+        </div>
+      );
+    });
+  }
+
+  function renderImportPreview(ariaLabel: string) {
+    if (!previewWords.length) return null;
+    return (
+      <section className="import-preview" aria-label={ariaLabel}>
+        <header>
+          <div>
+            <b>Предпросмотр</b>
+            <span>{formatWordCount(previewBuckets.recognized.length)} распознано · {formatWordCount(previewBuckets.unrecognized.length)} не распознано</span>
+          </div>
+          {isTranslatingPreview && <em>Определяем переводы…</em>}
+        </header>
+        {previewBuckets.recognized.length > 0 && (
+          <div className="import-preview-group">
+            <h4>Распознано</h4>
+            <div className="import-preview-list">{renderImportPreviewRows(previewBuckets.recognized, "recognized")}</div>
+          </div>
+        )}
+        {previewBuckets.unrecognized.length > 0 && (
+          <div className="import-preview-group is-unrecognized">
+            <h4>Не распознано</h4>
+            <div className="import-preview-list">{renderImportPreviewRows(previewBuckets.unrecognized, "unrecognized")}</div>
+          </div>
+        )}
+      </section>
+    );
   }
 
   return <main className="app-canvas">
@@ -922,24 +1362,8 @@ export default function Home() {
             />
           </label>
           <p className="paste-help">Вставьте слова или пары «слово — перевод», каждую с новой строки. Если перевода нет, мы определим его автоматически. Перед добавлением всё можно проверить и исправить.</p>
-          {previewWords.length > 0 && <section className="import-preview" aria-label="Предпросмотр слов">
-            <header>
-              <div><b>Предпросмотр</b><span>{formatWordCount(importablePreviewWords.length)} для добавления</span></div>
-              {isTranslatingPreview && <em>Определяем переводы…</em>}
-            </header>
-            <div className="import-preview-list">
-              {previewWords.map((word) => {
-                const duplicate = existingPreviewSources.has(normalizeForMatch(word.source));
-                return <div className={`import-preview-row ${duplicate ? "duplicate" : ""}`} key={word.id}>
-                  <input aria-label="Слово" value={word.source} onChange={(event) => updatePreviewWord(word.id, { source: event.target.value })} />
-                  <i aria-hidden="true">→</i>
-                  <input aria-label={`Перевод слова ${word.source}`} value={word.target} onChange={(event) => updatePreviewWord(word.id, { target: event.target.value })} placeholder={isTranslatingPreview ? "Определяем перевод…" : "Введите перевод"} />
-                  <small>{duplicate ? "Уже в словаре" : formatInputDate(word.addedAt)}</small>
-                </div>;
-              })}
-            </div>
-          </section>}
-          <button className="primary full" onClick={() => addParsed(previewWords)} disabled={!importablePreviewWords.length || isTranslatingPreview || newDictionaryLanguagesInvalid}>
+          {renderImportPreview("Предпросмотр слов")}
+          <button className="primary full" onClick={() => addParsed(importablePreviewWords)} disabled={!importablePreviewWords.length || isTranslatingPreview || newDictionaryLanguagesInvalid}>
             {importablePreviewWords.length
               ? isCreatingDictionary
                 ? `Создать словарь и добавить ${formatWordCount(importablePreviewWords.length)}`
@@ -949,19 +1373,148 @@ export default function Home() {
         </div>}
 
         {addMode === "file" && <div className="file-pane">
-          <input ref={fileRef} type="file" hidden accept=".txt,.csv,.tsv,.docx,.pdf,image/png,image/jpeg,image/webp,image/heic" onChange={(event) => event.target.files?.[0] && extractFile(event.target.files[0])} />
-          <button className="drop-zone" onClick={() => fileRef.current?.click()} disabled={newDictionaryLanguagesInvalid}>
-            <b>{fileName || "Выберите файл"}</b>
-            <span>TXT, CSV, DOCX, PDF, PNG, JPG, WEBP</span>
-            <small>Текст распознаётся автоматически. Перед добавлением вы сможете проверить пары.</small>
+          <input ref={fileRef} type="file" hidden accept=".txt,.csv,.tsv,.docx,.pdf,image/png,image/jpeg,image/webp,image/heic" onChange={(event) => { const next = event.target.files?.[0]; if (next) extractFile(next); event.target.value = ""; }} />
+          {!uploadedFile ? (
+            <button type="button" className="drop-zone" onClick={() => fileRef.current?.click()} disabled={newDictionaryLanguagesInvalid}>
+              <b>{fileName || "Выберите файл"}</b>
+              <span>TXT, CSV, DOCX, PDF, PNG, JPG, WEBP</span>
+              <small>Текст распознаётся автоматически. Перед добавлением вы сможете проверить пары.</small>
+            </button>
+          ) : (
+            <div className={`file-card ${filePreviewExpanded ? "is-expanded" : ""}`}>
+              <div className="file-card-main">
+                {uploadedFile.previewUrl ? (
+                  <button type="button" className="file-thumb" onClick={() => {
+                    setFileTextDraft(bulkText);
+                    setFilePreviewExpanded((open) => !open);
+                  }} aria-label={filePreviewExpanded ? "Свернуть превью" : "Открыть полное превью"}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={uploadedFile.previewUrl} alt={`Превью ${uploadedFile.name}`} />
+                  </button>
+                ) : (
+                  <div className={`file-kind-badge kind-${uploadedFile.kind}`} aria-hidden="true">{uploadedFile.kind === "pdf" ? "PDF" : uploadedFile.kind === "text" ? "TXT" : "DOC"}</div>
+                )}
+                <div className="file-card-meta">
+                  <b title={uploadedFile.name}>{uploadedFile.name}</b>
+                  <span>{uploadedFile.sizeLabel} · {uploadedFile.kind === "image" ? "Изображение" : uploadedFile.kind === "pdf" ? "PDF" : uploadedFile.kind === "text" ? "Текст" : "Документ"}</span>
+                  {!uploadedFile.previewUrl && uploadedFile.snippet && <p>{uploadedFile.snippet}{uploadedFile.snippet.length >= 280 ? "…" : ""}</p>}
+                  <div className="file-card-actions">
+                    {(uploadedFile.previewUrl || uploadedFile.snippet || bulkText) && (
+                      <button type="button" onClick={() => {
+                        setFileTextDraft(bulkText);
+                        setFilePreviewExpanded((open) => !open);
+                      }}>{filePreviewExpanded ? "Свернуть" : "Полная версия"}</button>
+                    )}
+                    <button type="button" onClick={() => fileRef.current?.click()}>Другой файл</button>
+                    <button type="button" className="file-card-clear" onClick={() => { clearUploadedFile(); setBulkText(""); setPreviewWords([]); setImportStatus(""); }}>Убрать</button>
+                  </div>
+                </div>
+              </div>
+              {filePreviewExpanded && (
+                <div className="file-card-full">
+                  {uploadedFile.previewUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img className="file-card-full-media" src={uploadedFile.previewUrl} alt={uploadedFile.name} />
+                  )}
+                  <label className="file-full-text-label" htmlFor="file-recognized-text">Распознанный текст</label>
+                  <textarea
+                    id="file-recognized-text"
+                    className="file-full-text"
+                    value={fileTextDraft}
+                    onChange={(event) => setFileTextDraft(event.target.value)}
+                    rows={10}
+                    aria-label="Редактировать распознанный текст"
+                  />
+                  {fileTextDirty && fileTextDiff && (
+                    <div className="file-text-offer" role="status">
+                      <p>
+                        {fileTextDiff.added === 0 && fileTextDiff.removed === 0
+                          ? "Текст изменён, набор слов тот же. Обновить предпросмотр?"
+                          : <>После правки: {fileTextDiff.added > 0 && <b>+{fileTextDiff.added}</b>}{fileTextDiff.added > 0 && fileTextDiff.removed > 0 ? " · " : ""}{fileTextDiff.removed > 0 && <b>−{fileTextDiff.removed}</b>} к списку слов</>}
+                      </p>
+                      <div>
+                        <button type="button" className="file-text-apply" onClick={() => {
+                          setBulkText(fileTextDraft);
+                          setImportStatus(fileTextDiff.nextCount
+                            ? `Список обновлён: ${formatWordCount(fileTextDiff.nextCount)}.`
+                            : "Текст обновлён, слова не найдены.");
+                        }}>Применить к списку</button>
+                        <button type="button" onClick={() => setFileTextDraft(bulkText)}>Отменить правки</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {uploadedFile && renderImportPreview("Предпросмотр слов из файла")}
+
+          <button
+            type="button"
+            className="primary full"
+            onClick={() => addParsed(importablePreviewWords)}
+            disabled={!uploadedFile || !importablePreviewWords.length || isTranslatingPreview || newDictionaryLanguagesInvalid}
+          >
+            {importablePreviewWords.length
+              ? isCreatingDictionary
+                ? `Создать словарь и добавить ${formatWordCount(importablePreviewWords.length)}`
+                : `Добавить ${formatWordCount(importablePreviewWords.length)} из файла`
+              : "Добавить слова из файла"}
           </button>
-          <button type="button" className="primary full" disabled>Добавить слова из файла</button>
         </div>}
 
         {addMode === "single" && <div className="single-pane">
-          <label>Слово или выражение<input value={singleSource} onChange={(event) => setSingleSource(event.target.value)} placeholder="circumstances" /></label>
-          <label>Перевод<input value={singleTarget} onChange={(event) => setSingleTarget(event.target.value)} placeholder="обстоятельства" /></label>
-          <button className="primary full" onClick={addSingle} disabled={newDictionaryLanguagesInvalid}>
+          <div className="single-fields">
+            <label>Слово или выражение
+              <input
+                value={singleSource}
+                onChange={(event) => setSingleSource(event.target.value)}
+                placeholder="circumstances"
+                className={singleSuggestStatus === "unrecognized" && singleSuggestSide === "target" ? "is-unrecognized" : undefined}
+              />
+            </label>
+            <label>Перевод
+              <input
+                value={singleTarget}
+                onChange={(event) => setSingleTarget(event.target.value)}
+                placeholder="обстоятельства"
+                className={singleSuggestStatus === "unrecognized" && singleSuggestSide === "source" ? "is-unrecognized" : undefined}
+              />
+            </label>
+          </div>
+          {singleSuggestStatus === "loading" && <p className="single-suggest-status" role="status">Ищем перевод…</p>}
+          {singleSuggestStatus === "unrecognized" && (
+            <p className="single-suggest-status is-unrecognized" role="status">
+              Слово не распознано — введите {singleSuggestSide === "target" ? "перевод" : "слово"} вручную
+            </p>
+          )}
+          {singleSuggestStatus === "ready" && singleSuggestions.length > 0 && (
+            <div className="single-suggest-row" role="group" aria-label="Варианты перевода">
+              <span>Варианты</span>
+              {singleSuggestions.map((suggestion) => (
+                <button
+                  type="button"
+                  key={suggestion}
+                  className="suggest-chip"
+                  onClick={() => {
+                    if (singleSuggestSide === "target") setSingleTarget(suggestion);
+                    else setSingleSource(suggestion);
+                    setSingleSuggestions([]);
+                    setSingleSuggestStatus("idle");
+                    setSingleSuggestSide(null);
+                  }}
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            className="primary full"
+            onClick={addSingle}
+            disabled={newDictionaryLanguagesInvalid || !singleSource.trim() || !singleTarget.trim()}
+          >
             {isCreatingDictionary ? "Создать словарь и добавить слово" : "Добавить слово"}
           </button>
         </div>}
