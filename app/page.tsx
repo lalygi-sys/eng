@@ -37,6 +37,7 @@ type Dictionary = { id: string; sourceLang: string; targetLang: string };
 type Scope = "all" | "clean" | "errors" | "known" | "unlearned";
 type View = "library" | "calendar" | "cards" | "match" | "type";
 type AddMode = "paste" | "file" | "single";
+type ClearDictionaryMode = "words" | "dictionary";
 type ExportFormat = "csv" | "txt" | "json";
 type ContextWordFilter = "day" | "known" | "errors";
 type SpeechRecognitionLike = {
@@ -503,9 +504,9 @@ function downloadDictionary(words: Word[], format: ExportFormat) {
 }
 
 export default function Home() {
-  const [words, setWords] = useState<Word[]>(starterWords);
-  const [dictionaries, setDictionaries] = useState<Dictionary[]>(starterDictionaries);
-  const [selectedDictionaryId, setSelectedDictionaryId] = useState(DEFAULT_DICTIONARY_ID);
+  const [words, setWords] = useState<Word[]>([]);
+  const [dictionaries, setDictionaries] = useState<Dictionary[]>([]);
+  const [selectedDictionaryId, setSelectedDictionaryId] = useState("");
   const [hydrated, setHydrated] = useState(false);
   const [view, setView] = useState<View>("library");
   const [scope, setScope] = useState<Scope>("all");
@@ -515,8 +516,11 @@ export default function Home() {
   const [trainingCalendarOpen, setTrainingCalendarOpen] = useState(false);
   const [contextWordFilter, setContextWordFilter] = useState<ContextWordFilter>("day");
   const [addOpen, setAddOpen] = useState(false);
+  const [clearDictionaryOpen, setClearDictionaryOpen] = useState(false);
+  const [clearDictionaryMode, setClearDictionaryMode] = useState<ClearDictionaryMode>("words");
+  const [clearStatus, setClearStatus] = useState("");
   const [addMode, setAddMode] = useState<AddMode>("paste");
-  const [addTargetId, setAddTargetId] = useState<string | "new">(DEFAULT_DICTIONARY_ID);
+  const [addTargetId, setAddTargetId] = useState<string | "new">("new");
   const [newSourceLang, setNewSourceLang] = useState("English");
   const [newTargetLang, setNewTargetLang] = useState("Русский");
   const [bulkText, setBulkText] = useState("");
@@ -545,6 +549,9 @@ export default function Home() {
   const [cardFlash, setCardFlash] = useState<"success" | "error" | null>(null);
   const [answer, setAnswer] = useState("");
   const cardFlashTimerRef = useRef<number | null>(null);
+  const clearStatusTimerRef = useRef<number | null>(null);
+  const clearUndoRef = useRef<Word[]>([]);
+  const clearUndoDictionaryRef = useRef<null | { dictionary: Dictionary; words: Word[]; index: number }>(null);
   const [feedback, setFeedback] = useState<"idle" | "success" | "error">("idle");
   const [listening, setListening] = useState(false);
   const [speechMessage, setSpeechMessage] = useState("");
@@ -555,14 +562,50 @@ export default function Home() {
   const [statusOffer, setStatusOffer] = useState<null | { wordId: string; status: WordStatus; label: string; suggest: WordStatus }>(null);
   const [practicePromptMode, setPracticePromptMode] = useState<PracticePromptMode>("source");
   const fileRef = useRef<HTMLInputElement>(null);
+  const clearButtonRef = useRef<HTMLButtonElement>(null);
+  const clearSummaryRef = useRef<HTMLElement>(null);
+  const clearModalRef = useRef<HTMLElement>(null);
+  const clearCancelRef = useRef<HTMLButtonElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   useEffect(() => {
     return () => {
       if (cardFlashTimerRef.current) window.clearTimeout(cardFlashTimerRef.current);
+      if (clearStatusTimerRef.current) window.clearTimeout(clearStatusTimerRef.current);
       if (uploadedPreviewUrlRef.current?.startsWith("blob:")) URL.revokeObjectURL(uploadedPreviewUrlRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!clearDictionaryOpen) return;
+    const returnFocusTo = clearButtonRef.current ?? clearSummaryRef.current;
+    const focusFrame = window.requestAnimationFrame(() => clearCancelRef.current?.focus());
+    function handleClearDialogKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setClearDictionaryOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(clearModalRef.current?.querySelectorAll<HTMLButtonElement>("button:not([disabled])") ?? []);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+    window.addEventListener("keydown", handleClearDialogKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener("keydown", handleClearDialogKeyDown);
+      returnFocusTo?.focus();
+    };
+  }, [clearDictionaryOpen]);
   useEffect(() => {
     let saved: string | null = null;
     let savedDictionaries: string | null = null;
@@ -575,12 +618,23 @@ export default function Home() {
       // Some local previews use an opaque browser origin where storage is unavailable.
     }
     /* eslint-disable react-hooks/set-state-in-effect -- restore browser-only dictionary state after hydration */
-    if (saved) try {
-      const parsed = JSON.parse(saved) as Word[];
-      setWords(parsed.map(normalizeWord));
-    } catch { /* keep starter data */ }
-    if (savedDictionaries) try { setDictionaries(JSON.parse(savedDictionaries)); } catch { /* keep starter dictionary */ }
-    if (savedSelectedDictionary) setSelectedDictionaryId(savedSelectedDictionary);
+    let restoredWords: Word[] | null = null;
+    let restoredDictionaries: Dictionary[] | null = null;
+    if (saved) try { restoredWords = (JSON.parse(saved) as Word[]).map(normalizeWord); } catch { /* keep empty state */ }
+    if (savedDictionaries) try { restoredDictionaries = JSON.parse(savedDictionaries) as Dictionary[]; } catch { /* keep empty state */ }
+    const isLegacyStarterWords = restoredWords?.length === starterWords.length
+      && starterWords.every((starter) => restoredWords?.some((word) => word.id === starter.id && word.source === starter.source && word.target === starter.target));
+    const isLegacyStarterDictionaries = restoredDictionaries?.length === starterDictionaries.length
+      && starterDictionaries.every((starter) => restoredDictionaries?.some((dictionary) => dictionary.id === starter.id && dictionary.sourceLang === starter.sourceLang && dictionary.targetLang === starter.targetLang));
+    const shouldResetLegacyDemo = Boolean(
+      isLegacyStarterDictionaries
+      && (isLegacyStarterWords || restoredWords?.length === 0),
+    );
+    if (!shouldResetLegacyDemo) {
+      if (restoredWords) setWords(restoredWords);
+      if (restoredDictionaries) setDictionaries(restoredDictionaries);
+      if (savedSelectedDictionary) setSelectedDictionaryId(savedSelectedDictionary);
+    }
     setHydrated(true);
     /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
@@ -588,6 +642,7 @@ export default function Home() {
   useEffect(() => { if (hydrated) try { localStorage.setItem("lingua-dictionaries-v1", JSON.stringify(dictionaries)); } catch { /* storage unavailable */ } }, [dictionaries, hydrated]);
   useEffect(() => { if (hydrated) try { localStorage.setItem("lingua-selected-dictionary-v1", selectedDictionaryId); } catch { /* storage unavailable */ } }, [selectedDictionaryId, hydrated]);
 
+  const hasDictionaries = dictionaries.length > 0;
   const currentDictionary = dictionaries.find((dictionary) => dictionary.id === selectedDictionaryId) ?? dictionaries[0] ?? starterDictionaries[0];
   const addTargetDictionary = addTargetId === "new" ? null : dictionaries.find((dictionary) => dictionary.id === addTargetId) ?? currentDictionary;
   const isCreatingDictionary = addTargetId === "new";
@@ -749,6 +804,83 @@ export default function Home() {
   }, [singleSource, singleTarget, addSourceLang, addTargetLang, newDictionaryLanguagesInvalid]);
 
   function updateWord(id: string, patch: Partial<Word>) { setWords((items) => items.map((word) => word.id === id ? { ...word, ...patch } : word)); }
+  function openClearDictionaryDialog(mode: ClearDictionaryMode) {
+    setClearDictionaryMode(mode);
+    setClearDictionaryOpen(true);
+  }
+  function clearCurrentDictionary() {
+    const removedCount = dictionaryWords.length;
+    if (!removedCount) return;
+    clearUndoRef.current = dictionaryWords;
+    clearUndoDictionaryRef.current = null;
+    setWords((items) => items.filter((word) => (word.dictionaryId ?? DEFAULT_DICTIONARY_ID) !== currentDictionary.id));
+    setSelectedDates([]);
+    setSearch("");
+    setScope("all");
+    resetPracticeState();
+    setView("library");
+    setClearDictionaryOpen(false);
+    setClearStatus(`Удалено ${formatWordCount(removedCount)}`);
+    if (clearStatusTimerRef.current) window.clearTimeout(clearStatusTimerRef.current);
+    clearStatusTimerRef.current = window.setTimeout(() => {
+      clearUndoRef.current = [];
+      setClearStatus("");
+    }, 5000);
+  }
+  function deleteCurrentDictionary() {
+    const dictionary = currentDictionary;
+    const dictionaryIndex = dictionaries.findIndex((item) => item.id === dictionary.id);
+    const remainingDictionaries = dictionaries.filter((item) => item.id !== dictionary.id);
+    const nextDictionary = remainingDictionaries[Math.min(Math.max(dictionaryIndex, 0), Math.max(remainingDictionaries.length - 1, 0))] ?? remainingDictionaries[0];
+    clearUndoRef.current = [];
+    clearUndoDictionaryRef.current = { dictionary, words: dictionaryWords, index: Math.max(dictionaryIndex, 0) };
+    setWords((items) => items.filter((word) => (word.dictionaryId ?? DEFAULT_DICTIONARY_ID) !== dictionary.id));
+    setDictionaries(remainingDictionaries);
+    setSelectedDictionaryId(nextDictionary?.id ?? "");
+    setSelectedDates([]);
+    setSearch("");
+    setScope("all");
+    resetPracticeState();
+    setView("library");
+    setClearDictionaryOpen(false);
+    setClearStatus(`Удалён словарь «${dictionary.sourceLang} — ${dictionary.targetLang}»`);
+    if (clearStatusTimerRef.current) window.clearTimeout(clearStatusTimerRef.current);
+    clearStatusTimerRef.current = window.setTimeout(() => {
+      clearUndoDictionaryRef.current = null;
+      setClearStatus("");
+    }, 5000);
+  }
+  function undoClearCurrentDictionary() {
+    const deletedDictionary = clearUndoDictionaryRef.current;
+    if (deletedDictionary) {
+      setDictionaries((items) => {
+        if (items.some((dictionary) => dictionary.id === deletedDictionary.dictionary.id)) return items;
+        const restored = [...items];
+        restored.splice(Math.min(deletedDictionary.index, restored.length), 0, deletedDictionary.dictionary);
+        return restored;
+      });
+      setWords((items) => {
+        const existingIds = new Set(items.map((word) => word.id));
+        return [...deletedDictionary.words.filter((word) => !existingIds.has(word.id)), ...items];
+      });
+      setSelectedDictionaryId(deletedDictionary.dictionary.id);
+      clearUndoDictionaryRef.current = null;
+      setClearStatus(`Восстановлен словарь «${deletedDictionary.dictionary.sourceLang} — ${deletedDictionary.dictionary.targetLang}»`);
+      if (clearStatusTimerRef.current) window.clearTimeout(clearStatusTimerRef.current);
+      clearStatusTimerRef.current = window.setTimeout(() => setClearStatus(""), 3200);
+      return;
+    }
+    const restoredWords = clearUndoRef.current;
+    if (!restoredWords.length) return;
+    setWords((items) => {
+      const existingIds = new Set(items.map((word) => word.id));
+      return [...restoredWords.filter((word) => !existingIds.has(word.id)), ...items];
+    });
+    clearUndoRef.current = [];
+    setClearStatus(`Восстановлено ${formatWordCount(restoredWords.length)}`);
+    if (clearStatusTimerRef.current) window.clearTimeout(clearStatusTimerRef.current);
+    clearStatusTimerRef.current = window.setTimeout(() => setClearStatus(""), 3200);
+  }
   function updatePreviewWord(id: string, patch: Pick<Partial<Word>, "source" | "target">) {
     setPreviewWords((items) => items.map((word) => word.id === id ? { ...word, ...patch } : word));
     if (patch.target !== undefined) {
@@ -779,7 +911,7 @@ export default function Home() {
     setAddMode(mode);
     setAddDateOpen(false);
     setImportStatus("");
-    if (target === "new") {
+    if (target === "new" || !hasDictionaries) {
       setAddTargetId("new");
       setNewSourceLang("English");
       setNewTargetLang("Русский");
@@ -1102,8 +1234,8 @@ export default function Home() {
     <section className={`workspace ${isTraining ? "training-mode" : view === "library" ? "library-mode" : ""}`}>
       <aside className="rail">
         <button className="brand" onClick={() => { setView("library"); setScope("all"); setSelectedDate(null); }}>lingua<span>.</span></button>
-        <p className="dictionary-switcher-label">Какой словарь?</p>
-        <details className="dictionary-switcher">
+        <p className="dictionary-switcher-label">Словари</p>
+        {hasDictionaries ? <details className="dictionary-switcher">
           <summary aria-label={`Выбран словарь: ${currentDictionary.sourceLang} — ${currentDictionary.targetLang}`}>
             <span>{currentDictionary.sourceLang} — {currentDictionary.targetLang}</span>
             <i className="material-symbols-outlined" aria-hidden="true">keyboard_arrow_down</i>
@@ -1130,11 +1262,19 @@ export default function Home() {
             })}
             <button type="button" className="dictionary-create" onClick={(event) => { openAdd("paste", "new"); event.currentTarget.closest("details")?.removeAttribute("open"); }}><span className="material-symbols-outlined" aria-hidden="true">add</span>Добавить словарь</button>
           </div>
-        </details>
+        </details> : <details className="dictionary-switcher dictionary-switcher-empty-select">
+          <summary aria-label="Словари не созданы">
+            <span>Нет созданных словарей</span>
+            <i className="material-symbols-outlined" aria-hidden="true">keyboard_arrow_down</i>
+          </summary>
+          <div className="dictionary-switcher-menu" role="menu" aria-label="Действия со словарями">
+            <button type="button" role="menuitem" className="dictionary-create" onClick={(event) => { openAdd("single", "new"); event.currentTarget.closest("details")?.removeAttribute("open"); }}><span className="material-symbols-outlined" aria-hidden="true">add</span>Добавить словарь</button>
+          </div>
+        </details>}
 
-        <button className="rail-add" onClick={() => openAdd("paste")}>Добавить слова</button>
+        <button className="rail-add" onClick={() => openAdd("paste", hasDictionaries ? "current" : "new")}>Добавить слова</button>
 
-        <div className="rail-section">
+        {hasDictionaries && <div className="rail-section">
           <nav className="rail-nav quiet" aria-label="Обучение">
             <button className={`training-entry ${isTraining ? "active" : ""}`} onClick={() => openTraining("cards")}><b>Учить слова</b></button>
           </nav>
@@ -1164,7 +1304,29 @@ export default function Home() {
             </div>
             <TrainingFilters scope={scope} total={trainingPeriodWords.length} clean={trainingCleanWords.length} errors={trainingErrorWords.length} unlearned={trainingUnlearnedWords.length} onChange={selectPracticeScope} />
           </div>
-        </div>
+        </div>}
+
+        {!hasDictionaries && <div className="rail-section rail-empty-training">
+          <nav className="rail-nav quiet" aria-label="Обучение">
+            <button className="training-entry" type="button" disabled aria-describedby="training-empty-description"><b>Учить слова</b></button>
+          </nav>
+          <div className="rail-training-settings">
+            <div className="period-picker">
+              <label className="period-label" htmlFor="empty-training-period">За какой период?</label>
+              <button id="empty-training-period" className="period-control" type="button" disabled>
+                <span>Нет добавленных слов</span>
+                <i className="material-symbols-outlined calendar-glyph" aria-hidden="true">calendar_month</i>
+              </button>
+            </div>
+            <section className="rail-progress-placeholder" aria-labelledby="empty-progress-title">
+              <h2 id="empty-progress-title">Какие слова?</h2>
+              <div className="rail-progress-card">
+                <h3>Статистика слов</h3>
+                <p id="training-empty-description">Здесь появится статистика по словам. Повторяйте изученное и разбирайте ошибки.</p>
+              </div>
+            </section>
+          </div>
+        </div>}
 
       </aside>
 
@@ -1174,9 +1336,23 @@ export default function Home() {
             <div className="screen-title">
               <div>
                 <p>Словарь</p>
-                <h1>{currentDictionary.sourceLang} — {currentDictionary.targetLang}</h1>
+                <h1>{hasDictionaries ? `${currentDictionary.sourceLang} — ${currentDictionary.targetLang}` : "Создайте личный словарь"}</h1>
               </div>
-              <div className="library-title-actions">
+              {hasDictionaries && <div className="library-title-actions">
+                {dictionaryWords.length ? <details className="delete-menu">
+                  <summary ref={clearSummaryRef} className="clear-dictionary-button" aria-label="Открыть меню удаления">
+                    <span className="material-symbols-outlined" aria-hidden="true">delete</span>
+                    Удалить всё
+                    <span className="material-symbols-outlined delete-menu-arrow" aria-hidden="true">keyboard_arrow_down</span>
+                  </summary>
+                  <div role="menu" aria-label="Удаление словаря">
+                    <button type="button" role="menuitem" onClick={(event) => { openClearDictionaryDialog("words"); event.currentTarget.closest("details")?.removeAttribute("open"); }}><b>Удалить все слова</b><span>Словарь останется</span></button>
+                    <button type="button" role="menuitem" className="delete-menu-danger" onClick={(event) => { openClearDictionaryDialog("dictionary"); event.currentTarget.closest("details")?.removeAttribute("open"); }}><b>Удалить словарь</b><span>Вместе со всеми словами</span></button>
+                  </div>
+                </details> : <button ref={clearButtonRef} type="button" className="clear-dictionary-button" aria-haspopup="dialog" onClick={() => openClearDictionaryDialog("dictionary")}>
+                  <span className="material-symbols-outlined" aria-hidden="true">delete</span>
+                  Удалить словарь
+                </button>}
                 <details className="export-menu">
                   <summary><span className="material-symbols-outlined export-icon" aria-hidden="true">download</span>Скачать словарь</summary>
                   <div role="menu" aria-label="Как скачать словарь">
@@ -1202,9 +1378,9 @@ export default function Home() {
                     ))}
                   </div>
                 </details>
-              </div>
+              </div>}
             </div>
-            <div className="search-row">
+            {hasDictionaries && <><div className="search-row">
               <span className="material-symbols-outlined search-icon" aria-hidden="true">search</span>
               <input className="search" type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Например: обстоятельства" aria-label="Поиск по слову или переводу" />
             </div>
@@ -1215,14 +1391,14 @@ export default function Home() {
                 <button type="button" onClick={() => openAdd("paste")}><span className="material-symbols-outlined quick-add-icon" aria-hidden="true">add</span>Группа слов</button>
                 <button type="button" aria-label="Распознать слова с фото или файла: TXT, CSV, DOCX, PDF, PNG, JPG, WEBP" onClick={() => openAdd("file")}><span className="material-symbols-outlined quick-add-icon" aria-hidden="true">add</span>Слова с фото или файла</button>
               </div>
-            </nav>
+            </nav></>}
           </header>
         </>}
 
         {view === "calendar" && <header className="main-toolbar calendar-toolbar"><div className="screen-title"><div><p>ИСТОРИЯ СЛОВ</p><h1>Календарь</h1></div></div><div className="calendar-toolbar-actions"><button onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}>Предыдущий месяц</button><b>{monthNames[calendarMonth.getMonth()]} {calendarMonth.getFullYear()}</b><button onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}>Следующий месяц</button></div></header>}
 
         <div className="content-scroll">
-          {view === "library" && (filteredWords.length ? <LibraryView words={filteredWords} editId={editId} setEditId={setEditId} updateWord={updateWord} setWords={setWords} speak={speak} onStartTraining={(date) => startPractice("all", date)} /> : <LibraryEmptyState query={search.trim()} hasDictionaryMatch={hasDictionaryMatch} similarWords={similarWords} onSelectSuggestion={(word) => { setScope("all"); setSelectedDates([]); setSearch(word.source); }} onAddSingle={() => { setSingleSource(search.trim()); setSingleTarget(""); openAdd("single"); }} onUpload={() => openAdd("file")} onReset={() => { setScope("all"); setSelectedDates([]); }} />)}
+          {view === "library" && (filteredWords.length ? <LibraryView words={filteredWords} editId={editId} setEditId={setEditId} updateWord={updateWord} setWords={setWords} speak={speak} onStartTraining={(date) => startPractice("all", date)} /> : <LibraryEmptyState hasDictionary={hasDictionaries} hasWords={dictionaryWords.length > 0} query={search.trim()} hasDictionaryMatch={hasDictionaryMatch} similarWords={similarWords} onSelectSuggestion={(word) => { setScope("all"); setSelectedDates([]); setSearch(word.source); }} onCreateSingle={() => openAdd("single", "new")} onCreatePaste={() => openAdd("paste", "new")} onCreateFile={() => openAdd("file", "new")} onAddSingle={() => { setSingleSource(search.trim()); setSingleTarget(""); openAdd("single"); }} onUpload={() => openAdd("file")} onReset={() => { setScope("all"); setSelectedDates([]); }} />)}
           {view === "calendar" && <CalendarView cells={calendarCells} words={dictionaryWords} dateCounts={dateCounts} selectedDate={selectedDate} onSelectDate={(date) => { setSelectedDate(date); setScope("all"); setSearch(""); setView("library"); }} />}
           {isTraining && <TrainingHeader view={view as "cards" | "match" | "type"} count={practiceWords.length} selectedDate={selectedDate} sourceLang={currentDictionary.sourceLang} targetLang={currentDictionary.targetLang} promptMode={practicePromptMode} onPromptModeChange={changePracticePromptMode} onChange={openTraining} />}
           {view === "cards" && (current && currentSides ? <div className="practice-body"><div className="session-line"><span>{cardIndex % practiceWords.length + 1} из {practiceWords.length}</span><i><b style={{ width: `${((cardIndex % practiceWords.length + 1) / practiceWords.length) * 100}%` }} /></i></div><div className="flashcard-wrap"><div className={`flashcard ${revealed ? "is-revealed" : ""} ${cardFlash === "success" ? "flash-ok" : cardFlash === "error" ? "flash-bad" : ""}`}><div className="flashcard-face" key={`${current.id}-${revealed ? "back" : "front"}`}><small>{revealed ? currentSides.answerLang : currentSides.promptLang}</small><div className="flashcard-word"><strong>{revealed ? currentSides.answer : currentSides.prompt}</strong><button type="button" className="play-word" onClick={() => speakVisible(current, revealed)} aria-label={`Прослушать слово «${revealed ? currentSides.answer : currentSides.prompt}»`}><span className="material-symbols-outlined" aria-hidden="true">brand_awareness</span></button></div></div><button type="button" className="flashcard-reveal" disabled={Boolean(cardFlash)} onClick={() => setRevealed(!revealed)}>{revealed ? "Скрыть перевод" : "Показать перевод"}</button></div></div><div className="card-actions"><div className="card-actions-main"><button type="button" className="danger" disabled={Boolean(cardFlash)} onClick={() => markCurrent("error")}>Повторять</button><button type="button" className="success" disabled={Boolean(cardFlash)} onClick={() => markCurrent("known")}>Знаю</button></div><button type="button" className="card-actions-skip" disabled={Boolean(cardFlash)} onClick={() => markCurrent("learning")}>Следующее слово</button></div></div> : <EmptyPractice onAdd={() => openAdd()} />)}
@@ -1273,71 +1449,74 @@ export default function Home() {
       </aside>}
     </section>
 
+    {clearDictionaryOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setClearDictionaryOpen(false); }}>
+      <section ref={clearModalRef} className="clear-dictionary-modal" role="dialog" aria-modal="true" aria-labelledby="clear-dictionary-title" aria-describedby="clear-dictionary-description">
+        <div className="clear-dictionary-icon" aria-hidden="true"><span className="material-symbols-outlined">delete</span></div>
+        <div>
+          <p>ПОДТВЕРЖДЕНИЕ</p>
+          <h2 id="clear-dictionary-title">{clearDictionaryMode === "words" ? "Удалить все слова?" : "Удалить словарь целиком?"}</h2>
+          <p id="clear-dictionary-description">{clearDictionaryMode === "words"
+            ? <>{formatWordCount(dictionaryWords.length)} будут удалены. Сам словарь и выбранная пара языков останутся.</>
+            : <>Словарь «{currentDictionary.sourceLang} — {currentDictionary.targetLang}» и {formatWordCount(dictionaryWords.length)} внутри будут удалены.</>}</p>
+        </div>
+        <div className="clear-dictionary-actions">
+          <button ref={clearCancelRef} type="button" className="clear-cancel" onClick={() => setClearDictionaryOpen(false)}>Отмена</button>
+          {clearDictionaryMode === "words"
+            ? <button type="button" className="clear-confirm" onClick={clearCurrentDictionary}>Удалить слова</button>
+            : <button type="button" className="clear-confirm" onClick={deleteCurrentDictionary}>Удалить словарь</button>}
+        </div>
+      </section>
+    </div>}
+
+    {clearStatus && <div className="clear-status">
+      <span className="clear-status-message" role="status"><span className="material-symbols-outlined" aria-hidden="true">check_circle</span>{clearStatus}</span>
+      {(!!clearUndoRef.current.length || !!clearUndoDictionaryRef.current) && <button type="button" onClick={undoClearCurrentDictionary}>Вернуть</button>}
+    </div>}
+
     {addOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeAdd(); }}>
       <section className="add-modal" role="dialog" aria-modal="true" aria-labelledby="add-title">
         <header>
           <div>
-            <p>{isCreatingDictionary ? "НОВЫЙ СЛОВАРЬ" : "ЛИЧНЫЙ СЛОВАРЬ"}</p>
-            <h2 id="add-title">{isCreatingDictionary ? "Создать словарь и добавить слова" : "Добавить слова"}</h2>
+            <p>{isCreatingDictionary ? "НОВЫЙ СЛОВАРЬ" : "ДОБАВЛЕНИЕ СЛОВ"}</p>
+            <h2 id="add-title">{isCreatingDictionary ? "Новый словарь" : "Добавить слова"}</h2>
           </div>
           <button className="close" onClick={closeAdd} aria-label="Закрыть"><span className="material-symbols-outlined" aria-hidden="true">close</span></button>
         </header>
 
         <div className="import-dictionary">
           <div className="import-dictionary-row">
-            <div className="import-field">
-              <span className="period-label" id="add-dictionary-label">Словарь</span>
-              <MenuSelect
-                className="import-menu"
-                ariaLabel="Словарь"
-                labelId="add-dictionary-label"
-                value={addTargetId}
-                options={[
-                  ...dictionaries.map((dictionary) => ({ value: dictionary.id, label: `${dictionary.sourceLang} — ${dictionary.targetLang}` })),
-                  { value: "new", label: "Новый словарь" },
-                ]}
-                onChange={(value) => {
-                  setAddTargetId(value === "new" ? "new" : value);
-                  setAddDateOpen(false);
-                  if (value === "new") {
-                    setNewSourceLang("English");
-                    setNewTargetLang("Русский");
-                  }
-                }}
-                onOpen={() => setAddDateOpen(false)}
-              />
-            </div>
-            <div className={`period-picker add-date-picker ${addDateOpen ? "open" : ""}`}>
-              <label className="period-label" htmlFor="add-date">Дата добавления</label>
-              <button
-                id="add-date"
-                className="period-control"
-                type="button"
-                aria-label={`${addDateOpen ? "Закрыть" : "Открыть"} календарь. Дата добавления: ${formatInputDate(addDate)}`}
-                aria-haspopup="dialog"
-                aria-expanded={addDateOpen}
-                aria-controls="add-date-calendar"
-                onClick={() => {
-                  setAddCalendarMonth(new Date(`${addDate}T12:00:00`));
-                  setAddDateOpen((open) => !open);
-                }}
-              >
-                <span>{formatInputDate(addDate)}</span>
-                <i className="material-symbols-outlined calendar-glyph" aria-hidden="true">calendar_month</i>
-              </button>
-              {addDateOpen && <MonthCalendar
-                id="add-date-calendar"
-                label="Выбор даты добавления"
-                month={addCalendarMonth}
-                onMonthChange={setAddCalendarMonth}
-                cells={addCalendarCells}
-                mode="pick"
-                selectedDate={addDate}
-                onPickDate={(iso) => { setAddDate(iso); setAddDateOpen(false); }}
-              />}
-            </div>
+              <div className="import-field">
+                <span className="period-label" id="add-dictionary-label">Словарь</span>
+                <MenuSelect
+                  className="import-menu"
+                  ariaLabel="Словарь"
+                  labelId="add-dictionary-label"
+                  value={addTargetId}
+                  options={[
+                    ...dictionaries.map((dictionary) => ({ value: dictionary.id, label: `${dictionary.sourceLang} — ${dictionary.targetLang}` })),
+                    { value: "new", label: "Новый словарь" },
+                  ]}
+                  onChange={(value) => {
+                    setAddTargetId(value === "new" ? "new" : value);
+                    setAddDateOpen(false);
+                  }}
+                  onOpen={() => setAddDateOpen(false)}
+                />
+              </div>
+              <div className={`period-picker add-date-picker ${addDateOpen ? "open" : ""}`}>
+                <label className="period-label" htmlFor="add-date">Дата добавления</label>
+                <button id="add-date" className="period-control" type="button" aria-label={`${addDateOpen ? "Закрыть" : "Открыть"} календарь. Дата добавления: ${formatInputDate(addDate)}`} aria-haspopup="dialog" aria-expanded={addDateOpen} aria-controls="add-date-calendar" onClick={() => { setAddCalendarMonth(new Date(`${addDate}T12:00:00`)); setAddDateOpen((open) => !open); }}>
+                  <span>{formatInputDate(addDate)}</span><i className="material-symbols-outlined calendar-glyph" aria-hidden="true">calendar_month</i>
+                </button>
+                {addDateOpen && <MonthCalendar id="add-date-calendar" label="Выбор даты добавления" month={addCalendarMonth} onMonthChange={setAddCalendarMonth} cells={addCalendarCells} mode="pick" selectedDate={addDate} onPickDate={(iso) => { setAddDate(iso); setAddDateOpen(false); }} />}
+              </div>
           </div>
-          {isCreatingDictionary && (
+
+          {isCreatingDictionary && <div className="new-dictionary-fields" aria-labelledby="new-dictionary-languages-title">
+            <div className="new-dictionary-fields-copy">
+              <b id="new-dictionary-languages-title">Языки словаря</b>
+              <span>Выберите язык слов и язык перевода</span>
+            </div>
             <div className="dictionary-language-fields">
               <div className="dictionary-language-field"><span id="new-source-lang-label">Язык слов</span>
                 <MenuSelect className="import-menu" labelId="new-source-lang-label" ariaLabel="Язык словаря" value={newSourceLang} options={DICTIONARY_LANGUAGES.map((language) => ({ value: language, label: language }))} onChange={(value) => { setNewSourceLang(value); setAddDateOpen(false); }} onOpen={() => setAddDateOpen(false)} />
@@ -1347,11 +1526,11 @@ export default function Home() {
                 <MenuSelect className="import-menu" labelId="new-target-lang-label" ariaLabel="Язык перевода словаря" value={newTargetLang} options={DICTIONARY_LANGUAGES.map((language) => ({ value: language, label: language }))} onChange={(value) => { setNewTargetLang(value); setAddDateOpen(false); }} onOpen={() => setAddDateOpen(false)} />
               </div>
             </div>
-          )}
-          {newDictionaryLanguagesInvalid && <p className="dictionary-language-error" role="alert">Выберите два разных языка.</p>}
+            {newDictionaryLanguagesInvalid && <p className="dictionary-language-error" role="alert">Выберите два разных языка.</p>}
+          </div>}
         </div>
 
-        <nav>{(["paste", "file", "single"] as AddMode[]).map((item) => <button key={item} className={addMode === item ? "active" : ""} onClick={() => setAddMode(item)}>{{ paste: "Вставить список", file: "Загрузить файл", single: "Одно слово" }[item]}</button>)}</nav>
+          <nav>{(["single", "paste", "file"] as AddMode[]).map((item) => <button key={item} className={addMode === item ? "active" : ""} onClick={() => setAddMode(item)}>{{ paste: "Вставить список", file: "Загрузить файл", single: "Одно слово" }[item]}</button>)}</nav>
 
         {addMode === "paste" && <div className="paste-pane">
           <label>Вставьте скопированный текст
@@ -1596,11 +1775,12 @@ function MonthCalendar({
   </section>;
 }
 
-function MenuSelect({ ariaLabel, value, options, onChange, className = "", icon, onOpen, labelId }: { ariaLabel: string; value: string; options: Array<{ value: string; label: string }>; onChange: (value: string) => void; className?: string; icon?: string; onOpen?: () => void; labelId?: string }) {
+function MenuSelect({ ariaLabel, value, options, onChange, className = "", icon, onOpen, labelId, summaryPrefix }: { ariaLabel: string; value: string; options: Array<{ value: string; label: string }>; onChange: (value: string) => void; className?: string; icon?: string; onOpen?: () => void; labelId?: string; summaryPrefix?: string }) {
   const selected = options.find((option) => option.value === value)?.label ?? value;
   const valueId = labelId ? `${labelId}-value` : undefined;
+  const summaryLabel = summaryPrefix ? `${summaryPrefix} ${selected}` : selected;
   return <details className={`menu-select ${className}`.trim()} onToggle={(event) => { if (event.currentTarget.open) onOpen?.(); }}>
-    <summary {...(labelId ? { "aria-labelledby": `${labelId} ${valueId}` } : { "aria-label": `${ariaLabel}: ${selected}` })}>{icon && <span className="material-symbols-outlined menu-select-icon" aria-hidden="true">{icon}</span>}<span className="menu-select-value" id={valueId}>{selected}</span><span className="material-symbols-outlined menu-select-arrow" aria-hidden="true">keyboard_arrow_down</span></summary>
+    <summary {...(labelId ? { "aria-labelledby": `${labelId} ${valueId}` } : { "aria-label": `${ariaLabel}: ${summaryLabel}` })}>{icon && <span className="material-symbols-outlined menu-select-icon" aria-hidden="true">{icon}</span>}{summaryPrefix && <span className="menu-select-prefix">{summaryPrefix}</span>}<span className="menu-select-value" id={valueId}>{selected}</span><span className="material-symbols-outlined menu-select-arrow" aria-hidden="true">keyboard_arrow_down</span></summary>
     <div role="listbox" {...(labelId ? { "aria-labelledby": labelId } : { "aria-label": ariaLabel })}>{options.map((option) => <button type="button" role="option" aria-selected={option.value === value} className={option.value === value ? "active" : ""} key={option.value} onClick={(event) => { onChange(option.value); event.currentTarget.closest("details")?.removeAttribute("open"); }}>{option.label}</button>)}</div>
   </details>;
 }
@@ -1630,11 +1810,10 @@ function TrainingHeader({ view, count, selectedDate, sourceLang, targetLang, pro
     <div className="practice-format-row">
       <nav className="practice-format-chips" aria-label="Формат тренировки">{formats.map(format => <button key={format.id} className={view === format.id ? "active" : ""} aria-pressed={view === format.id} onClick={() => onChange(format.id)}>{format.label}</button>)}</nav>
       <div className="practice-lang">
-        <span className="practice-lang-label" id="practice-lang-label">Слова</span>
         <MenuSelect
           className="practice-lang-menu"
-          ariaLabel="Язык показа"
-          labelId="practice-lang-label"
+          ariaLabel="Язык показа слов"
+          summaryPrefix="Слова"
           value={promptMode}
           options={[
             { value: "source", label: `на ${sourceLang}` },
@@ -1703,7 +1882,35 @@ function LibraryView({ words, editId, setEditId, updateWord, setWords, speak, on
   </section>)}</div>;
 }
 
-function LibraryEmptyState({ query, hasDictionaryMatch, similarWords, onSelectSuggestion, onAddSingle, onUpload, onReset }: { query: string; hasDictionaryMatch: boolean; similarWords: Word[]; onSelectSuggestion: (word: Word) => void; onAddSingle: () => void; onUpload: () => void; onReset: () => void }) {
+function LibraryEmptyState({ hasDictionary, hasWords, query, hasDictionaryMatch, similarWords, onSelectSuggestion, onCreateSingle, onCreatePaste, onCreateFile, onAddSingle, onUpload, onReset }: { hasDictionary: boolean; hasWords: boolean; query: string; hasDictionaryMatch: boolean; similarWords: Word[]; onSelectSuggestion: (word: Word) => void; onCreateSingle: () => void; onCreatePaste: () => void; onCreateFile: () => void; onAddSingle: () => void; onUpload: () => void; onReset: () => void }) {
+  if (!hasDictionary) return <section className="first-run-onboarding" aria-label="Создание первого словаря">
+    <img className="first-run-illustration" src="/main-zero-state.png?v=5" alt="" />
+    <div className="first-run-copy">
+      <h2>Добавьте первые слова</h2>
+      <p>Добавляйте слова удобным способом. Тренировки помогут их запомнить.</p>
+    </div>
+    <div className="first-run-entry-options" aria-label="Способ добавления первых слов">
+      <button type="button" onClick={onCreateSingle}>
+        <span className="first-run-option-title"><b>Одно слово</b></span>
+        <small>Ввести вручную</small>
+      </button>
+      <button type="button" onClick={onCreatePaste}>
+        <span className="first-run-option-title"><b>Группа слов</b></span>
+        <small>Вставить списком</small>
+      </button>
+      <button type="button" onClick={onCreateFile}>
+        <span className="first-run-option-title"><b>Фото или файл</b></span>
+        <small>Фото, PDF, DOCX, TXT, CSV</small>
+      </button>
+    </div>
+    <p className="first-run-note">Языки и дату можно выбрать перед сохранением.</p>
+  </section>;
+  if (!hasWords) return <div className="empty-inline dictionary-empty-state">
+    <p className="empty-kicker">СЛОВАРЬ ПУСТ</p>
+    <h2>Добавьте первые слова</h2>
+    <p>Начните с одного слова — остальные способы добавления доступны выше.</p>
+    <div className="empty-actions"><button className="empty-add-action" onClick={onAddSingle}>Добавить слово</button></div>
+  </div>;
   if (query && !hasDictionaryMatch) return <div className="empty-inline search-empty">
     <p className="empty-kicker">НЕТ В СЛОВАРЕ</p>
     <h2>«{query}» пока нет в словаре</h2>
