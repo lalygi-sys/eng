@@ -558,6 +558,7 @@ export default function Home() {
   const [matchLeft, setMatchLeft] = useState<string | null>(null);
   const [matchRight, setMatchRight] = useState<string | null>(null);
   const [matched, setMatched] = useState<string[]>([]);
+  const [matchBatchStart, setMatchBatchStart] = useState(0);
   const [matchFlash, setMatchFlash] = useState<"success" | "error" | null>(null);
   const [statusOffer, setStatusOffer] = useState<null | { wordId: string; status: WordStatus; label: string; suggest: WordStatus }>(null);
   const [practicePromptMode, setPracticePromptMode] = useState<PracticePromptMode>("source");
@@ -722,7 +723,7 @@ export default function Home() {
     for (const key of currentKeys) if (key && !nextKeys.has(key)) removed += 1;
     return { added, removed, nextCount: next.length };
   }, [fileTextDirty, fileTextDraft, addDate, addSourceLang, addTargetLang, previewWords, uploadedFile?.kind]);
-  const matchWords = practiceWords.slice(0, 6);
+  const matchWords = practiceWords.slice(matchBatchStart, matchBatchStart + 6);
   const matchPairs = useMemo(() => matchWords.map((word) => {
     const sides = getPracticeSides(word, practicePromptMode);
     return { word, left: sides.prompt, right: sides.answer };
@@ -953,7 +954,7 @@ export default function Home() {
   }
   function resetPracticeState() {
     if (cardFlashTimerRef.current) window.clearTimeout(cardFlashTimerRef.current);
-    setCardIndex(0); setRevealed(false); setCardFlash(null); setFeedback("idle"); setAnswer(""); setSpeechMessage(""); setMatched([]); setStatusOffer(null);
+    setCardIndex(0); setRevealed(false); setCardFlash(null); setFeedback("idle"); setAnswer(""); setSpeechMessage(""); setMatched([]); setMatchBatchStart(0); setMatchLeft(null); setMatchRight(null); setMatchFlash(null); setStatusOffer(null);
   }
   function startPractice(nextScope: Scope, nextDate: string | null = selectedDate) { setScope(nextScope); setSelectedDate(nextDate); setSearch(""); resetPracticeState(); setView("cards"); }
   function openTraining(nextView: "cards" | "match" | "type") {
@@ -1141,7 +1142,17 @@ export default function Home() {
         updateWord(word.id, patch);
       }
       window.setTimeout(() => {
-        if (ok && word) setMatched((items) => [...new Set([...items, word.id])]);
+        if (ok && word) {
+          const nextMatched = [...new Set([...matched, word.id])];
+          const nextBatchStart = matchBatchStart + matchWords.length;
+          const batchComplete = matchWords.every((item) => nextMatched.includes(item.id));
+          if (batchComplete && nextBatchStart < practiceWords.length) {
+            setMatchBatchStart(nextBatchStart);
+            setMatched([]);
+          } else {
+            setMatched(nextMatched);
+          }
+        }
         setMatchLeft(null);
         setMatchRight(null);
         setMatchFlash(null);
