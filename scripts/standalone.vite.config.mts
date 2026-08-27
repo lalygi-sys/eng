@@ -16,16 +16,6 @@ export default defineConfig({
     cssCodeSplit: false,
     rollupOptions: {
       input: path.join(root, "scripts/standalone-index.html"),
-      output: {
-        entryFileNames: "lingua-app.js",
-        chunkFileNames: "assets/[name]-[hash].js",
-        assetFileNames: (assetInfo) => {
-          if (assetInfo.names?.some((name) => name.endsWith(".css")) || assetInfo.name?.endsWith(".css")) {
-            return "lingua-app.css";
-          }
-          return "assets/[name]-[hash][extname]";
-        },
-      },
     },
   },
 });
