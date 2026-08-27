@@ -1884,7 +1884,7 @@ function LibraryView({ words, editId, setEditId, updateWord, setWords, speak, on
 
 function LibraryEmptyState({ hasDictionary, hasWords, query, hasDictionaryMatch, similarWords, onSelectSuggestion, onCreateSingle, onCreatePaste, onCreateFile, onAddSingle, onUpload, onReset }: { hasDictionary: boolean; hasWords: boolean; query: string; hasDictionaryMatch: boolean; similarWords: Word[]; onSelectSuggestion: (word: Word) => void; onCreateSingle: () => void; onCreatePaste: () => void; onCreateFile: () => void; onAddSingle: () => void; onUpload: () => void; onReset: () => void }) {
   if (!hasDictionary) return <section className="first-run-onboarding" aria-label="Создание первого словаря">
-    <img className="first-run-illustration" src="/main-zero-state.png?v=5" alt="" />
+    <img className="first-run-illustration" src="./main-zero-state.png?v=6" alt="" />
     <div className="first-run-copy">
       <h2>Добавьте первые слова</h2>
       <p>Добавляйте слова удобным способом. Тренировки помогут их запомнить.</p>

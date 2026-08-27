@@ -25,7 +25,7 @@ test("server-renders Lingua with no default dictionary or words", async () => {
   assert.match(html, /Нет созданных словарей/);
   assert.match(html, /Добавить словарь/);
   assert.match(html, /Создайте личный словарь/);
-  assert.match(html, /main-zero-state\.png/);
+  assert.match(html, /src="\.\/main-zero-state\.png\?v=6"/);
   assert.match(html, /Нет добавленных слов/);
   assert.match(html, /Какие слова\?/);
   assert.match(html, /Статистика слов/);
