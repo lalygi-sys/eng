@@ -343,12 +343,13 @@ button{color:inherit}
 .first-run-copy h2{margin:0;font-size:22px;line-height:1.25;font-weight:600;letter-spacing:-.01em;color:#39433e;text-wrap:balance}
 .first-run-copy p{max-width:420px;margin:0;color:#59635e;font-size:13px;line-height:1.6;text-wrap:pretty}
 .first-run-entry-options{width:min(940px,100%);margin-top:24px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;text-align:left}
-.first-run-entry-options button{min-height:74px;padding:14px 18px;border:0;border-radius:8px;background:#f2f7f4;display:grid;align-content:center;gap:4px;color:#315d4e;text-align:left;cursor:pointer;transition-property:background-color,color;transition-duration:150ms;transition-timing-function:ease-out}
+.first-run-entry-options button{min-height:74px;padding:14px 18px;border:0;border-radius:8px;background:#f2f7f4;display:grid;grid-template-columns:24px minmax(0,1fr);grid-template-rows:auto auto;align-content:center;align-items:center;column-gap:14px;row-gap:4px;color:#315d4e;text-align:left;cursor:pointer;transition-property:background-color,color;transition-duration:150ms;transition-timing-function:ease-out}
 .first-run-entry-options button:hover{background:#eaf3ee;color:var(--green-dark)}
 .first-run-entry-options button:focus-visible{outline:2px solid var(--green);outline-offset:2px}
-.first-run-option-title{display:block;font-size:12px;line-height:1.25;text-wrap:balance}
+.first-run-option-icon{grid-row:1/3;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;align-self:center;font-size:24px!important;line-height:24px!important;font-variation-settings:"FILL" 0,"wght" 400,"GRAD" 0,"opsz" 24!important}
+.first-run-option-title{grid-column:2;display:block;min-width:0;font-size:12px;line-height:1.25;text-wrap:balance}
 .first-run-option-title b{font-weight:650}
-.first-run-entry-options button small{color:#77817b;font-size:9.5px;line-height:1.4;font-weight:500;text-wrap:pretty}
+.first-run-entry-options button small{grid-column:2;min-width:0;color:#77817b;font-size:9.5px;line-height:1.4;font-weight:500;text-wrap:pretty}
 .first-run-note{max-width:360px;margin:20px 0 0;color:#858c87;font-size:10px;line-height:1.45;text-wrap:pretty}
 
 .context-pane{padding:28px 14px 18px;border-left:1px solid var(--line);background:#fffefa;overflow:auto;display:flex;flex-direction:column;gap:12px}

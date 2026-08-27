@@ -1890,18 +1890,21 @@ function LibraryEmptyState({ hasDictionary, hasWords, query, hasDictionaryMatch,
               <p>
                 Создавайте словари на любых языках и добавляйте слова удобным способом. Для тренировок выбирайте слова
                 по дате и результатам.
-              </p>
+      </p>
     </div>
     <div className="first-run-entry-options" aria-label="Способ добавления первых слов">
       <button type="button" onClick={onCreateSingle}>
+        <span className="material-symbols-outlined first-run-option-icon" aria-hidden="true">stylus_note</span>
         <span className="first-run-option-title"><b>Одно слово</b></span>
         <small>Ввести вручную</small>
       </button>
       <button type="button" onClick={onCreatePaste}>
+        <span className="material-symbols-outlined first-run-option-icon" aria-hidden="true">list_alt_add</span>
         <span className="first-run-option-title"><b>Группа слов</b></span>
         <small>Вставить списком</small>
       </button>
       <button type="button" onClick={onCreateFile}>
+        <span className="material-symbols-outlined first-run-option-icon" aria-hidden="true">add_photo_alternate</span>
         <span className="first-run-option-title"><b>Фото или файл</b></span>
         <small>Фото, PDF, DOCX, TXT, CSV</small>
       </button>

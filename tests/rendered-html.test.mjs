@@ -36,6 +36,9 @@ test("server-renders Lingua with no default dictionary or words", async () => {
   assert.match(html, /Одно слово/);
   assert.match(html, /Группа слов/);
   assert.match(html, /Фото или файл/);
+  assert.match(html, /stylus_note/);
+  assert.match(html, /list_alt_add/);
+  assert.match(html, /add_photo_alternate/);
   assert.doesNotMatch(html, /Первый словарь — за пару минут/);
   assert.doesNotMatch(html, /0 из 3 шагов/);
   assert.doesNotMatch(html, /class="clear-dictionary-button"/);
