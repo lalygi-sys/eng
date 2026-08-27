@@ -32,7 +32,7 @@ test("server-renders Lingua with no default dictionary or words", async () => {
   assert.match(html, /статистика по словам/);
   assert.match(html, /Повторяйте изученное и разбирайте ошибки/);
   assert.doesNotMatch(html, /rail-progress-categories/);
-  assert.match(html, /Добавляйте слова удобным способом/);
+  assert.match(html, /Создавайте словари на любых языках/);
   assert.match(html, /Одно слово/);
   assert.match(html, /Группа слов/);
   assert.match(html, /Фото или файл/);
@@ -53,7 +53,7 @@ test("bulk delete is scoped, confirmed, accessible, and acknowledged", async () 
   assert.match(page, /useState<Dictionary\[]>\(\[\]\)/);
   assert.match(page, /shouldResetLegacyDemo/);
   assert.match(page, /restoredWords\?\.length === 0/);
-  assert.match(page, /Добавляйте слова удобным способом/);
+  assert.match(page, /Создавайте словари на любых языках/);
   assert.match(page, /className="new-dictionary-fields"/);
   assert.match(page, /Дата добавления/);
   assert.match(page, /\.\.\.dictionaries\.map/);

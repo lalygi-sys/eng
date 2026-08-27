@@ -1887,7 +1887,10 @@ function LibraryEmptyState({ hasDictionary, hasWords, query, hasDictionaryMatch,
     <img className="first-run-illustration" src="./main-zero-state.png?v=6" alt="" />
     <div className="first-run-copy">
       <h2>Добавьте первые слова</h2>
-      <p>Добавляйте слова удобным способом. Тренировки помогут их запомнить.</p>
+              <p>
+                Создавайте словари на любых языках и добавляйте слова удобным способом. Для тренировок выбирайте слова
+                по дате и результатам.
+              </p>
     </div>
     <div className="first-run-entry-options" aria-label="Способ добавления первых слов">
       <button type="button" onClick={onCreateSingle}>
