@@ -738,7 +738,9 @@ input:focus-visible,textarea:focus-visible,summary:focus-visible{outline:none}
   .new-dictionary-fields{padding:12px}
   .dictionary-language-fields>.material-symbols-outlined{justify-self:center;padding:0;transform:rotate(90deg)}
   .card-actions-main{grid-template-columns:1fr 1fr}
-  .pairs{grid-template-columns:1fr}
+  .pairs{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+  .pairs>div{gap:8px}
+  .pairs button{min-height:56px;padding:10px 11px;font-size:12px;line-height:1.3}
   .type-practice{padding:0}
   .type-word strong{font-size:38px}
   .answer{grid-template-columns:1fr}
