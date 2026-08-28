@@ -1354,7 +1354,6 @@ export default function Home() {
                   <summary ref={clearSummaryRef} className="clear-dictionary-button" aria-label="Открыть меню удаления">
                     <span className="material-symbols-outlined" aria-hidden="true">delete</span>
                     Удалить всё
-                    <span className="material-symbols-outlined delete-menu-arrow" aria-hidden="true">keyboard_arrow_down</span>
                   </summary>
                   <div role="menu" aria-label="Удаление словаря">
                     <button type="button" role="menuitem" onClick={(event) => { openClearDictionaryDialog("words"); event.currentTarget.closest("details")?.removeAttribute("open"); }}><b>Удалить все слова</b><span>Словарь останется</span></button>

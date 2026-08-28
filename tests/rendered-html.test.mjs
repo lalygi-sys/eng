@@ -68,6 +68,8 @@ test("bulk delete is scoped, confirmed, accessible, and acknowledged", async () 
   assert.match(page, /Удалить все слова\?/);
   assert.match(page, /className="delete-menu"/);
   assert.match(page, /role="menu" aria-label="Удаление словаря"/);
+  assert.doesNotMatch(page, /delete-menu-arrow/);
+  assert.doesNotMatch(css, /\.delete-menu-arrow/);
   assert.match(page, /dictionaryWords\.length \? <details/);
   assert.match(page, /Удалить словарь/);
   assert.match(page, /function deleteCurrentDictionary\(\)/);
