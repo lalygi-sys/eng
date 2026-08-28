@@ -61,6 +61,10 @@ test("bulk delete is scoped, confirmed, accessible, and acknowledged", async () 
   assert.match(page, /Дата добавления/);
   assert.match(page, /\.\.\.dictionaries\.map/);
   assert.match(page, /value: "new", label: "Новый словарь"/);
+  assert.match(page, /quick-add-icon[^>]*" aria-hidden="true">stylus_note/);
+  assert.match(page, /quick-add-icon[^>]*" aria-hidden="true">list_alt_add/);
+  assert.match(page, /quick-add-icon[^>]*" aria-hidden="true">add_photo_alternate/);
+  assert.match(page, /add_photo_alternate<\/span>Фото или файл/);
   assert.doesNotMatch(page, /DictionaryOnboardingStep/);
   assert.doesNotMatch(page, /onboarding-modal-progress/);
   assert.match(page, /aria-modal="true"/);

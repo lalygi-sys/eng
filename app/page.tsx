@@ -1397,9 +1397,9 @@ export default function Home() {
             <nav className="quick-add-row" aria-label="Способы добавления слов">
               <MenuSelect className="sort-menu quick-sort-menu" ariaLabel="Сортировка" value={sortOrder} options={[{ value: "newest", label: "Сначала новые" }, { value: "oldest", label: "Сначала старые" }, { value: "alpha", label: "По алфавиту" }]} onChange={(value) => setSortOrder(value as "newest" | "oldest" | "alpha")} />
               <div className="quick-add-actions">
-                <button type="button" onClick={() => openAdd("single")}><span className="material-symbols-outlined quick-add-icon" aria-hidden="true">add</span>Одно слово</button>
-                <button type="button" onClick={() => openAdd("paste")}><span className="material-symbols-outlined quick-add-icon" aria-hidden="true">add</span>Группа слов</button>
-                <button type="button" aria-label="Распознать слова с фото или файла: TXT, CSV, DOCX, PDF, PNG, JPG, WEBP" onClick={() => openAdd("file")}><span className="material-symbols-outlined quick-add-icon" aria-hidden="true">add</span>Слова с фото или файла</button>
+                <button type="button" onClick={() => openAdd("single")}><span className="material-symbols-outlined quick-add-icon" aria-hidden="true">stylus_note</span>Одно слово</button>
+                <button type="button" onClick={() => openAdd("paste")}><span className="material-symbols-outlined quick-add-icon" aria-hidden="true">list_alt_add</span>Группа слов</button>
+                <button type="button" aria-label="Распознать слова с фото или файла: TXT, CSV, DOCX, PDF, PNG, JPG, WEBP" onClick={() => openAdd("file")}><span className="material-symbols-outlined quick-add-icon" aria-hidden="true">add_photo_alternate</span>Фото или файл</button>
               </div>
             </nav></>}
           </header>
