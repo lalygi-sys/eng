@@ -486,7 +486,8 @@ button{color:inherit}
 .pairs>div{display:grid;gap:10px;align-content:start}
 .pairs button{min-height:64px;border:0;background:#fff;border-radius:10px;text-align:left;padding:14px 16px;color:var(--ink);font-size:14px;line-height:1.35;letter-spacing:-.08px;font-weight:720;overflow-wrap:anywhere;cursor:pointer;box-shadow:inset 0 0 0 1px var(--line);transition:background .18s,color .18s,box-shadow .18s,opacity .25s,transform .18s}
 .pairs button:hover:not(:disabled){background:#fdfefd;box-shadow:inset 0 0 0 1px #cfd6cf}
-.pairs button.selected{background:#f3f4f2;color:var(--ink);box-shadow:inset 0 0 0 1px #d5d7d3}
+.pairs button.selected{background:#e9edea;color:var(--ink);box-shadow:inset 0 0 0 1px #c7cec9}
+.pairs button.selected:hover:not(:disabled){background:#dce3de;color:var(--ink);box-shadow:inset 0 0 0 1px #b6c1ba}
 .pairs button.flash-ok{background:#e5eee8;color:var(--green-dark);box-shadow:inset 0 0 0 1px #c5d7cb;animation:pairs-ok .48s ease}
 .pairs button.flash-bad{background:#f3e6e4;color:#9e241e;box-shadow:inset 0 0 0 1px #e0c4c0;animation:pairs-bad .52s ease}
 .pairs button.done{opacity:.48;text-decoration:none;background:#f3f5f1;color:#6f7772;box-shadow:none;cursor:default}

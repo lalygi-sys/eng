@@ -85,5 +85,6 @@ test("bulk delete is scoped, confirmed, accessible, and acknowledged", async () 
   assert.match(css, /\.clear-dictionary-button:focus-visible/);
   assert.match(css, /\.clear-dictionary-actions button:focus-visible/);
   assert.match(css, /\.pairs\{grid-template-columns:minmax\(0,1fr\) minmax\(0,1fr\);gap:8px\}/);
+  assert.match(css, /\.pairs button\.selected:hover:not\(:disabled\)/);
   assert.match(css, /@media\(max-width:390px\)/);
 });
