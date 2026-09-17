@@ -29,8 +29,44 @@ button{color:inherit}
 .workspace.library-mode{grid-template-columns:260px minmax(0,1fr)}
 
 .rail{border-right:1px solid var(--line);padding:28px 16px 24px;display:flex;flex-direction:column;min-width:0;background:#fffefa;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin}
+.rail-brand-row{position:relative;width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding-right:2px}
 .brand{align-self:flex-start;border:0;background:none;padding:0 8px;color:#164c37;font-family:Georgia,"Times New Roman",serif;font-size:31px;line-height:1;font-weight:400;letter-spacing:-1.6px;cursor:pointer}
 .brand span{color:#164c37}
+.account-menu{position:relative;z-index:50}
+.account-menu>summary{width:40px;height:40px;padding:0;display:grid;place-items:center;border:0;border-radius:50%;background:transparent;list-style:none;cursor:pointer}
+.account-menu>summary::-webkit-details-marker{display:none}
+.account-menu>summary:hover,.account-menu[open]>summary{background:#f1f2f0}
+.account-menu>summary:focus-visible{outline:2px solid var(--green);outline-offset:2px;background:#f1f2f0}
+.account-avatar{width:32px;height:32px;display:grid;place-items:center;border-radius:50%;background:#e5eee8;color:var(--green-dark);font-size:10px;line-height:1;font-weight:750;letter-spacing:.02em}
+.account-menu-panel{position:absolute;z-index:50;top:calc(100% + 6px);right:0;width:236px;padding:8px;display:grid;gap:4px;border:1px solid var(--line);border-radius:10px;background:#fff;box-shadow:0 14px 32px rgba(24,38,31,.14)}
+.account-menu-profile{padding:10px 10px 12px;display:grid;gap:4px;border-bottom:1px solid var(--line-soft)}
+.account-menu-profile b{font-size:12px;line-height:1.25;font-weight:650}
+.account-menu-profile small{font-size:10px;line-height:1.35;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.account-menu-language{width:100%;min-height:42px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:10px;border:0;border-radius:7px;background:transparent;color:var(--ink);font-size:11px;text-align:left;cursor:pointer}
+.account-menu-language>span{display:flex;align-items:center;gap:7px;white-space:nowrap}
+.account-menu-language .material-symbols-outlined,.account-menu-logout .material-symbols-outlined{font-size:17px;line-height:1;color:#66716b}
+.account-menu-language:hover{background:#f1f2f0}
+.account-menu-language .account-menu-language-value{gap:2px;color:#69726d;font-size:10px;font-weight:650;letter-spacing:.04em}
+.account-menu-language-value .material-symbols-outlined{font-size:16px}
+.account-menu-language:focus-visible{outline:2px solid var(--green);outline-offset:-2px;background:#f1f2f0}
+.account-menu-logout{min-height:40px;padding:8px 10px;display:flex;align-items:center;gap:7px;border:0;border-radius:7px;background:transparent;color:#59635e;font-size:11px;text-align:left;cursor:pointer}
+.account-menu-logout:hover{background:#f1f2f0;color:var(--ink)}
+.account-menu-logout:focus-visible{outline:2px solid var(--green);outline-offset:-2px;background:#f1f2f0}
+.account-language-header{min-height:42px;padding:2px 4px 8px;display:grid;grid-template-columns:36px minmax(0,1fr);align-items:center;gap:4px;border-bottom:1px solid var(--line-soft)}
+.account-language-header button{width:36px;height:36px;padding:0;display:grid;place-items:center;border:0;border-radius:7px;background:transparent;cursor:pointer}
+.account-language-header button:hover{background:#f1f2f0}
+.account-language-header button:focus-visible{outline:2px solid var(--green);outline-offset:-2px;background:#f1f2f0}
+.account-language-header .material-symbols-outlined{font-size:18px;color:#5f6a64}
+.account-language-header b{font-size:12px;font-weight:650}
+.account-language-options{padding-top:4px;display:grid;gap:2px}
+.account-language-options button{min-height:44px;padding:8px 10px;display:flex;align-items:center;justify-content:space-between;gap:12px;border:0;border-radius:7px;background:transparent;color:var(--ink);text-align:left;cursor:pointer}
+.account-language-options button:hover{background:#f1f2f0}
+.account-language-options button:focus-visible{outline:2px solid var(--green);outline-offset:-2px;background:#f1f2f0}
+.account-language-options button.active{background:#edf2ee;color:var(--green-dark)}
+.account-language-options button>span{display:flex;align-items:baseline;gap:8px}
+.account-language-options b{font-size:11px;font-weight:600}
+.account-language-options small{color:var(--muted);font-size:9px;font-weight:650;letter-spacing:.04em}
+.account-language-options .material-symbols-outlined{font-size:17px;color:var(--green)}
 .dictionary-name{margin:24px 8px 15px;padding-bottom:15px;border-bottom:1px solid var(--line-soft);display:grid;gap:4px}
 .dictionary-name span,.rail-section>span{font-size:9px;letter-spacing:1.25px;color:#929690;font-weight:750}
 .dictionary-name b{font-size:11px;font-weight:650;line-height:1.35}
@@ -621,11 +657,14 @@ button{color:inherit}
 .import-preview-group>h4{margin:0;padding:8px 11px 4px;font-size:11px;font-weight:650;color:var(--green-dark)}
 .import-preview-group.is-unrecognized>h4{color:#a35432}
 .import-preview-list{display:grid;max-height:180px;overflow:auto}
-.import-preview-row{padding:8px 10px;border-top:1px solid var(--line-soft);display:grid;grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr) auto;gap:8px;align-items:center}
+.import-preview-row{padding:8px 10px;border-top:1px solid var(--line-soft);display:grid;grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr) 126px;gap:8px;align-items:center}
 .import-preview-row:first-child{border-top:0}
 .import-preview-row input{width:100%;min-width:0;height:38px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:0 10px;color:var(--ink);font-size:13px}
 .import-preview-row i{font-style:normal;color:var(--muted);text-align:center}
 .import-preview-row small{min-width:78px;color:var(--muted);font-size:9px;text-align:right;white-space:nowrap}
+.import-preview-meta{min-width:0;display:grid;gap:4px}
+.import-preview-row input.import-preview-date{padding:0 7px;font-size:11px;color:#59635e;font-variant-numeric:tabular-nums}
+.import-preview-date:focus,.import-preview-date:focus-visible{outline:none;border-color:var(--field-focus-border);background:var(--field-focus-bg);box-shadow:var(--field-focus-ring)}
 .import-preview-row.duplicate{background:#fff8f5}
 .import-preview-row.duplicate input{border-color:#e8c9bd;background:#fffdfc}
 .import-preview-row.duplicate small{color:#a64f30;font-weight:750}
@@ -701,6 +740,8 @@ input:focus-visible,textarea:focus-visible,summary:focus-visible{outline:none}
   .workspace{display:block}
   .rail{position:relative;width:100%;height:auto;padding:16px 14px 12px;border-right:0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center}
   .brand{padding:0;font-size:28px}
+  .rail-brand-row{grid-column:1;min-width:0}
+  .account-menu-panel{left:0;right:auto}
   .dictionary-name,.rail-section{display:none}
   .dictionary-switcher-label{grid-column:1/-1;margin:0 0 -5px}
   .dictionary-switcher{grid-column:1/-1;margin:0}
@@ -744,7 +785,8 @@ input:focus-visible,textarea:focus-visible,summary:focus-visible{outline:none}
   .type-word strong{font-size:38px}
   .answer{grid-template-columns:1fr}
   .import-preview-row{grid-template-columns:minmax(0,1fr) 14px minmax(0,1fr)}
-  .import-preview-row small{grid-column:1/-1;text-align:left}
+  .import-preview-meta{grid-column:1/-1;grid-template-columns:minmax(150px,220px) minmax(0,1fr);align-items:center}
+  .import-preview-row small{text-align:left}
 }
 
 @media(max-width:390px){

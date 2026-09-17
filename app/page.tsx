@@ -276,11 +276,85 @@ async function translateSuggestions(value: string, sourceLanguage: string, targe
   }
 }
 
+type ImportDateParts = { year?: number; month: number; day: number };
+
+const IMPORT_MONTHS: Record<string, number> = {
+  january: 1, jan: 1, январь: 1, января: 1, янв: 1,
+  february: 2, feb: 2, февраль: 2, февраля: 2, фев: 2,
+  march: 3, mar: 3, март: 3, марта: 3, мар: 3,
+  april: 4, apr: 4, апрель: 4, апреля: 4, апр: 4,
+  may: 5, май: 5, мая: 5,
+  june: 6, jun: 6, июнь: 6, июня: 6, июн: 6,
+  july: 7, jul: 7, июль: 7, июля: 7, июл: 7,
+  august: 8, aug: 8, август: 8, августа: 8, авг: 8,
+  september: 9, sep: 9, sept: 9, сентябрь: 9, сентября: 9, сен: 9, сент: 9,
+  october: 10, oct: 10, октябрь: 10, октября: 10, окт: 10,
+  november: 11, nov: 11, ноябрь: 11, ноября: 11, ноя: 11,
+  december: 12, dec: 12, декабрь: 12, декабря: 12, дек: 12,
+};
+
+function parseImportDateParts(value: string): ImportDateParts | null {
+  const clean = value.trim().replace(/^"|"$/g, "").replace(/^(?:дата(?:\s+добавления)?|date(?:\s+added)?|added\s+at)\s*:\s*/i, "");
+  const iso = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s].*)?$/);
+  const local = clean.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2}|\d{4})$/);
+  const namedMonth = clean.replace(/,/g, " ").replace(/\s+/g, " ").match(/^([\p{L}.]+)\s+(\d{1,2})(?:\s+(\d{4}))?$/u);
+  const namedMonthReversed = clean.replace(/,/g, " ").replace(/\s+/g, " ").match(/^(\d{1,2})\s+([\p{L}.]+)(?:\s+(\d{4}))?$/u);
+  const monthToken = (namedMonth?.[1] ?? namedMonthReversed?.[2] ?? "").toLocaleLowerCase("ru-RU").replace(/\.$/, "");
+  const month = IMPORT_MONTHS[monthToken];
+  const parts: ImportDateParts | null = iso
+    ? { year: Number(iso[1]), month: Number(iso[2]), day: Number(iso[3]) }
+    : local
+      ? { year: Number(local[3].length === 2 ? `20${local[3]}` : local[3]), month: Number(local[2]), day: Number(local[1]) }
+      : month
+        ? { year: Number(namedMonth?.[3] ?? namedMonthReversed?.[3]) || undefined, month, day: Number(namedMonth?.[2] ?? namedMonthReversed?.[1]) }
+      : null;
+  if (!parts) return null;
+  const validationYear = parts.year ?? 2000;
+  const candidate = new Date(Date.UTC(validationYear, parts.month - 1, parts.day));
+  if (candidate.getUTCFullYear() !== validationYear || candidate.getUTCMonth() !== parts.month - 1 || candidate.getUTCDate() !== parts.day) return null;
+  return parts;
+}
+
+function formatImportDateParts(parts: ImportDateParts, fallbackDate: string) {
+  const year = parts.year ?? Number(fallbackDate.slice(0, 4));
+  return `${year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+function parseImportDate(value: string, fallbackDate = TODAY): string | null {
+  const parts = parseImportDateParts(value);
+  return parts ? formatImportDateParts(parts, fallbackDate) : null;
+}
+
+function resolveImportGroupDates(lines: string[], fallbackDate: string) {
+  const markers = lines.flatMap((raw, index) => {
+    const line = raw.trim().replace(/^[-•]\s*/, "");
+    const parts = parseImportDateParts(line);
+    return parts ? [{ index, parts }] : [];
+  });
+  const resolved = new Map<number, string>();
+  if (!markers.length) return resolved;
+  const fallback = parseImportDateParts(fallbackDate) ?? { year: Number(fallbackDate.slice(0, 4)), month: 1, day: 1 };
+  let next: Required<ImportDateParts> | null = null;
+  for (let markerIndex = markers.length - 1; markerIndex >= 0; markerIndex -= 1) {
+    const marker = markers[markerIndex];
+    let year = marker.parts.year;
+    if (!year && next) year = marker.parts.month > next.month ? next.year - 1 : next.year;
+    if (!year) {
+      const fallbackYear = fallback.year ?? Number(fallbackDate.slice(0, 4));
+      const fallbackTime = Date.UTC(fallbackYear, fallback.month - 1, fallback.day);
+      year = [fallbackYear - 1, fallbackYear, fallbackYear + 1].sort((a, b) => (
+        Math.abs(Date.UTC(a, marker.parts.month - 1, marker.parts.day) - fallbackTime)
+        - Math.abs(Date.UTC(b, marker.parts.month - 1, marker.parts.day) - fallbackTime)
+      ))[0];
+    }
+    next = { year, month: marker.parts.month, day: marker.parts.day };
+    resolved.set(marker.index, formatImportDateParts(next, fallbackDate));
+  }
+  return resolved;
+}
+
 function normalizeDate(value: string, fallback = TODAY) {
-  const clean = value.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
-  const parts = clean.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})$/);
-  return parts ? `${parts[3]}-${parts[2].padStart(2, "0")}-${parts[1].padStart(2, "0")}` : fallback;
+  return parseImportDate(value, fallback) ?? fallback;
 }
 
 function makePreviewWord(source: string, target: string, addedAt: string, sourceLanguage: string, targetLanguage: string): Word {
@@ -300,16 +374,28 @@ function makePreviewWord(source: string, target: string, addedAt: string, source
 function parsePairs(text: string, fallbackDate: string, sourceLanguage: string, targetLanguage: string): Word[] {
   let currentDate = fallbackDate;
   const result: Word[] = [];
-  for (const raw of text.replace(/\r/g, "").split("\n")) {
+  const lines = text.replace(/\r/g, "").split("\n");
+  const groupDates = resolveImportGroupDates(lines, fallbackDate);
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const raw = lines[lineIndex];
     const line = raw.trim().replace(/^[-•]\s*/, "");
     if (!line) continue;
-    const dateLine = line.match(/^(?:дата|date)?\s*:?\s*(\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4})$/i);
-    if (dateLine) { currentDate = normalizeDate(dateLine[1], fallbackDate); continue; }
+    const standaloneDate = groupDates.get(lineIndex);
+    if (standaloneDate) { currentDate = standaloneDate; continue; }
     let parts = line.split(/\t|;|\s+[—–→=]\s+|\s+-\s+/).map((item) => item.replace(/^"|"$/g, "").trim()).filter(Boolean);
     if (parts.length < 2 && line.includes(",")) parts = line.split(",").map((item) => item.replace(/^"|"$/g, "").trim()).filter(Boolean);
     if (parts.length < 2 && line.includes(":")) parts = line.split(/:\s+/).map((item) => item.trim()).filter(Boolean);
+    const normalizedHeaders = parts.map((part) => part.toLocaleLowerCase("ru-RU").replace(/\s+/g, " "));
+    const hasDateHeader = normalizedHeaders.some((part) => /^(дата|дата добавления|date|date added|added at)$/.test(part));
+    const hasWordHeader = normalizedHeaders.some((part) => /^(word|слово|english|исходное слово)$/.test(part));
+    const hasTranslationHeader = normalizedHeaders.some((part) => /^(translation|перевод|russian|перевод слова)$/.test(part));
+    if ((hasDateHeader && (hasWordHeader || hasTranslationHeader)) || (hasWordHeader && hasTranslationHeader)) continue;
     let rowDate = currentDate;
-    if (parts[0] && /^(\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4})$/.test(parts[0])) rowDate = normalizeDate(parts.shift()!, currentDate);
+    const dateIndex = parts.findIndex((part) => Boolean(parseImportDate(part, currentDate)));
+    if (dateIndex >= 0) {
+      rowDate = parseImportDate(parts[dateIndex], currentDate) ?? currentDate;
+      parts.splice(dateIndex, 1);
+    }
     if (!parts.length) continue;
     const source = parts.shift()!;
     const target = parts.join("; ").trim();
@@ -507,6 +593,8 @@ export default function Home() {
   const [words, setWords] = useState<Word[]>([]);
   const [dictionaries, setDictionaries] = useState<Dictionary[]>([]);
   const [selectedDictionaryId, setSelectedDictionaryId] = useState("");
+  const [accountMenuView, setAccountMenuView] = useState<"main" | "language">("main");
+  const [interfaceLanguage, setInterfaceLanguage] = useState<"ru" | "en">("ru");
   const [hydrated, setHydrated] = useState(false);
   const [view, setView] = useState<View>("library");
   const [scope, setScope] = useState<Scope>("all");
@@ -882,7 +970,7 @@ export default function Home() {
     if (clearStatusTimerRef.current) window.clearTimeout(clearStatusTimerRef.current);
     clearStatusTimerRef.current = window.setTimeout(() => setClearStatus(""), 3200);
   }
-  function updatePreviewWord(id: string, patch: Pick<Partial<Word>, "source" | "target">) {
+  function updatePreviewWord(id: string, patch: Pick<Partial<Word>, "source" | "target" | "addedAt">) {
     setPreviewWords((items) => items.map((word) => word.id === id ? { ...word, ...patch } : word));
     if (patch.target !== undefined) {
       const nextTarget = patch.target.trim();
@@ -1208,7 +1296,10 @@ export default function Home() {
             onChange={(event) => updatePreviewWord(word.id, { target: event.target.value })}
             placeholder={isTranslatingPreview ? "Определяем перевод…" : needsTranslation ? "Перевод не распознан" : "Введите перевод"}
           />
-          <small>{duplicate ? "Уже в словаре" : needsTranslation ? "Не распознано" : formatInputDate(word.addedAt)}</small>
+          <div className="import-preview-meta">
+            <input className="import-preview-date" type="date" aria-label={`Дата добавления слова ${word.source}`} value={word.addedAt} onChange={(event) => updatePreviewWord(word.id, { addedAt: event.target.value })} />
+            {(duplicate || needsTranslation) && <small>{duplicate ? "Уже в словаре" : "Не распознано"}</small>}
+          </div>
         </div>
       );
     });
@@ -1244,7 +1335,47 @@ export default function Home() {
   return <main className="app-canvas">
     <section className={`workspace ${isTraining ? "training-mode" : view === "library" ? "library-mode" : ""}`}>
       <aside className="rail">
-        <button className="brand" onClick={() => { setView("library"); setScope("all"); setSelectedDate(null); }}>lingua<span>.</span></button>
+        <div className="rail-brand-row">
+          <button className="brand" onClick={() => { setView("library"); setScope("all"); setSelectedDate(null); }}>lingua<span>.</span></button>
+          <details className="account-menu" onToggle={(event) => { if (!event.currentTarget.open) setAccountMenuView("main"); }}>
+            <summary aria-label="Открыть личный аккаунт">
+              <span className="account-avatar" aria-hidden="true">ТК</span>
+            </summary>
+            <div className="account-menu-panel" role="dialog" aria-label="Личный аккаунт">
+              {accountMenuView === "main" ? <>
+                <div className="account-menu-profile">
+                  <b>Имя и Фамилия</b>
+                  <small>email@example.com</small>
+                </div>
+                <button type="button" className="account-menu-language" onClick={() => setAccountMenuView("language")}>
+                  <span><i className="material-symbols-outlined" aria-hidden="true">language</i>Язык интерфейса</span>
+                  <span className="account-menu-language-value">{interfaceLanguage.toUpperCase()}<i className="material-symbols-outlined" aria-hidden="true">keyboard_arrow_right</i></span>
+                </button>
+                <button type="button" className="account-menu-logout" onClick={(event) => event.currentTarget.closest("details")?.removeAttribute("open")}>
+                  <span className="material-symbols-outlined" aria-hidden="true">logout</span>
+                  Выйти из аккаунта
+                </button>
+              </> : <>
+                <header className="account-language-header">
+                  <button type="button" onClick={() => setAccountMenuView("main")} aria-label="Назад к аккаунту"><span className="material-symbols-outlined" aria-hidden="true">arrow_back</span></button>
+                  <b>Язык интерфейса</b>
+                </header>
+                <div className="account-language-options" role="radiogroup" aria-label="Выбрать язык интерфейса">
+                  {([[
+                    "ru", "Русский", "RU",
+                  ], [
+                    "en", "English", "EN",
+                  ]] as const).map(([value, label, code]) => (
+                    <button type="button" role="radio" aria-checked={interfaceLanguage === value} className={interfaceLanguage === value ? "active" : ""} key={value} onClick={() => setInterfaceLanguage(value)}>
+                      <span><b>{label}</b><small>{code}</small></span>
+                      {interfaceLanguage === value && <i className="material-symbols-outlined" aria-hidden="true">check</i>}
+                    </button>
+                  ))}
+                </div>
+              </>}
+            </div>
+          </details>
+        </div>
         <p className="dictionary-switcher-label">Словари</p>
         {hasDictionaries ? <details className="dictionary-switcher">
           <summary aria-label={`Выбран словарь: ${currentDictionary.sourceLang} — ${currentDictionary.targetLang}`}>
