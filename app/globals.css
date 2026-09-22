@@ -19,7 +19,7 @@
 }
 
 *{box-sizing:border-box}
-html{background:var(--canvas)}
+html{background:var(--canvas);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 body{margin:0;background:radial-gradient(circle at 8% 6%,#fbf8f1 0,transparent 34%),var(--canvas);color:var(--ink);font-family:var(--font-geist-sans),Arial,sans-serif}
 button,input,select,textarea{font:inherit}
 button{color:inherit}
@@ -90,6 +90,7 @@ button{color:inherit}
 .dictionary-switcher-menu button.dictionary-create{justify-content:flex-start;margin-top:4px;padding-top:12px;border-top:1px solid var(--line-soft);border-radius:0 0 8px 8px;color:var(--green);font-weight:560}
 .dictionary-switcher-menu .dictionary-create .material-symbols-outlined{flex:0 0 auto;font-size:15px;overflow:visible}
 .dictionary-switcher-empty-select>summary{background:#fafaf7;color:#747c77;font-weight:500}
+.dictionary-empty-label-mobile{display:none}
 .dictionary-switcher-empty-select .dictionary-switcher-menu .dictionary-create{margin:0;padding-top:10px;border-top:0;border-radius:8px}
 .rail-nav{display:grid;gap:5px}
 .rail-nav button{border:0;background:transparent;border-radius:8px;padding:10px 10px;display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left;font-size:12px;font-weight:560;cursor:pointer}
@@ -376,6 +377,9 @@ button{color:inherit}
 .first-run-copy{min-width:0;display:grid;justify-items:center;gap:11px}
 .first-run-copy h2{margin:0;font-size:22px;line-height:1.25;font-weight:600;letter-spacing:-.01em;color:#39433e;text-wrap:balance}
 .first-run-copy p{max-width:420px;margin:0;color:#59635e;font-size:13px;line-height:1.6;text-wrap:pretty}
+.first-run-mobile-add,.first-run-training-hint{display:none}
+.first-run-add-sheet,.first-run-sheet-panel{display:contents}
+.first-run-sheet-backdrop,.first-run-sheet-handle,.first-run-sheet-header{display:none}
 .first-run-entry-options{width:min(940px,100%);margin-top:24px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;text-align:left}
 .first-run-entry-options button{min-height:74px;padding:14px 18px;border:0;border-radius:8px;background:#f2f7f4;display:grid;grid-template-columns:24px minmax(0,1fr);grid-template-rows:auto auto;align-content:center;align-items:center;column-gap:14px;row-gap:4px;color:#315d4e;text-align:left;cursor:pointer;transition-property:background-color,color;transition-duration:150ms;transition-timing-function:ease-out}
 .first-run-entry-options button:hover{background:#eaf3ee;color:var(--green-dark)}
@@ -737,79 +741,205 @@ input:focus-visible,textarea:focus-visible,summary:focus-visible{outline:none}
 }
 
 @media(max-width:650px){
-  .workspace{display:block}
-  .rail{position:relative;width:100%;height:auto;padding:16px 14px 12px;border-right:0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center}
-  .brand{padding:0;font-size:28px}
-  .rail-brand-row{grid-column:1;min-width:0}
-  .account-menu-panel{left:0;right:auto}
-  .dictionary-name,.rail-section{display:none}
-  .dictionary-switcher-label{grid-column:1/-1;margin:0 0 -5px}
+  body{background:#fffefa}
+  .app-canvas{min-height:100dvh}
+  .workspace,.workspace.library-mode,.workspace.training-mode{display:block;min-height:100dvh;background:#fffefa}
+
+  /* Mobile header: brand, dictionary and the two primary actions. */
+  .rail{position:relative;z-index:40;width:100%;height:auto;padding:14px 16px 16px;border-right:0;border-bottom:1px solid var(--line-soft);display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px 8px;align-items:center;overflow:visible;background:rgba(255,254,250,.98)}
+  .rail-brand-row{grid-column:1/-1;min-width:0;padding:0}
+  .brand{padding:0;font-size:29px;line-height:1}
+  .account-menu>summary{width:44px;height:44px}
+  .account-avatar{width:34px;height:34px;font-size:11px}
+  .account-menu-panel{left:auto;right:0;width:min(290px,calc(100vw - 32px));border-radius:14px;box-shadow:0 18px 44px rgba(24,38,31,.18)}
+  .dictionary-name,.dictionary-switcher-label{display:none}
   .dictionary-switcher{grid-column:1/-1;margin:0}
-  .dictionary-switcher-menu{max-width:320px}
-  .rail-nav{grid-column:1/-1;display:flex;overflow-x:auto}
-  .rail-nav button{min-width:max-content;padding:8px 11px}
-  .rail-add{grid-row:1;grid-column:2;margin:0;padding:9px 12px}
-  .rail-section:has(.rail-training-settings){display:grid;grid-column:1/-1;padding-top:12px}
-  .rail-training-settings{grid-template-columns:1fr 1fr;margin-top:4px}
-  .rail-training-settings .period-picker .calendar-card{position:relative;inset:auto;width:100%;top:auto;margin-top:6px}
-  .main-pane{min-height:0}
-  .main-toolbar{padding:20px 14px 12px}
-  .library-title-actions{flex-wrap:wrap;gap:7px}
-  .library-period{width:200px}
-  .search-row{grid-template-columns:minmax(0,1fr) auto}
-  .quick-add-row{grid-template-columns:1fr;gap:4px}
-  .quick-add-actions{justify-content:flex-start}
-  .toolbar-row{grid-template-columns:1fr 1fr}
-  .content-scroll{padding:16px 14px 24px;overflow:visible}
-  .first-run-onboarding{min-height:auto;margin:34px auto 0;padding:17px}
-  .first-run-illustration{width:min(340px,92vw);max-height:180px;margin-top:0;margin-bottom:24px}
-  .first-run-entry-options{margin-top:18px;grid-template-columns:1fr}
-  .first-run-entry-options button{min-height:60px;gap:5px}
-  .word-row{padding:13px;gap:11px 14px}
-  .word-row:not(.editing){grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"copy controls"}
-  .word-copy{grid-template-columns:1fr;gap:4px}
-  .status-menu{width:142px;flex-basis:142px}
-  .row-actions{margin:0}
-  .word-row.editing{grid-template-columns:1fr}
-  .large-calendar-grid>button,.large-calendar-grid>span{min-height:48px}
-  .large-calendar-grid button b{display:none}
-  .context-pane{grid-column:auto;display:grid;grid-template-columns:1fr;padding:14px}
-  .import-settings,.import-dictionary-row,.single-fields,.dictionary-language-fields{grid-template-columns:1fr}
-  .new-dictionary-fields{padding:12px}
-  .dictionary-language-fields>.material-symbols-outlined{justify-self:center;padding:0;transform:rotate(90deg)}
-  .card-actions-main{grid-template-columns:1fr 1fr}
-  .pairs{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px}
+  .dictionary-switcher>summary{height:46px;min-height:46px;padding:0 12px 0 14px;border-radius:11px;font-size:14px}
+  .dictionary-empty-label-desktop{display:none}
+  .dictionary-empty-label-mobile{display:block}
+  .dictionary-switcher-menu{width:100%;max-width:none;padding:7px;border-radius:12px}
+  .dictionary-switcher-menu button{min-height:48px;font-size:13px}
+  .rail-add{grid-column:1;grid-row:auto;height:46px;margin:0;border-radius:10px;padding:0 10px;font-size:12px;box-shadow:none}
+  .rail-section:has(.rail-training-settings){display:contents}
+  .rail-nav.quiet{grid-column:2;display:block;min-width:0;overflow:visible}
+  .rail-nav.quiet .training-entry{width:100%;height:46px;min-height:46px;border-radius:10px;font-size:12px}
+  .rail-nav.quiet .training-entry>b{font-size:12px}
+  .rail-training-settings{display:none}
+  .workspace.training-mode .rail-training-settings{grid-column:1/-1;margin:4px 0 0;padding:14px 0 0;border-top:1px solid var(--line-soft);display:grid;grid-template-columns:1fr;gap:12px}
+  .workspace.training-mode .rail-training-settings .period-label{margin-bottom:7px}
+  .workspace.training-mode .rail-training-settings .period-control{height:44px;border-radius:10px;padding-inline:12px}
+  .workspace.training-mode .rail-training-settings .period-picker .calendar-card{position:relative;inset:auto;width:100%;top:auto;margin-top:7px;padding:14px;border-radius:14px}
+  .workspace.training-mode .rail-training-settings .training-filters{margin:0;overflow:hidden}
+  .workspace.training-mode .rail-training-settings .training-filters>header{margin-bottom:8px}
+  .workspace.training-mode .rail-training-settings .training-filter-options{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+  .workspace.training-mode .rail-training-settings .training-filter-options::-webkit-scrollbar{display:none}
+  .workspace.training-mode .rail-training-settings .training-filter-options button{min-width:max-content;min-height:42px;padding:0 12px;border:1px solid var(--line);background:#fff}
+
+  .main-pane{min-height:0;overflow:visible}
+  .main-toolbar{padding:22px 16px 14px}
+  .workspace.library-mode .main-toolbar:not(:has(.library-title-actions)){display:none}
+  .screen-title{margin-bottom:18px;display:grid;align-items:start;gap:14px}
+  .screen-title p,.content-head p{margin-bottom:7px}
+  .screen-title h1,.screen-title h2,.content-head h2{font-size:clamp(27px,8vw,34px);line-height:1.08;letter-spacing:-.7px;text-wrap:balance}
+  .library-title-actions{width:100%;margin:0;padding:0;display:flex;justify-content:flex-start;gap:6px;overflow-x:auto;scrollbar-width:none}
+  .library-title-actions::-webkit-scrollbar{display:none}
+  .clear-dictionary-button,.export-menu summary{height:44px;min-width:max-content;padding-inline:11px;border-radius:9px;background:#f7f6f2;font-size:12px}
+  .delete-menu>div,.export-menu>div{position:fixed;z-index:90;left:16px;right:16px;top:auto;bottom:16px;width:auto;max-height:min(70dvh,520px);overflow:auto;padding:9px;border-radius:15px;box-shadow:0 24px 70px rgba(24,38,31,.24)}
+  .delete-menu>div>button{min-height:58px}
+  .export-menu button{min-height:64px}
+  .search-row{margin-bottom:12px}
+  .search{height:48px;border-radius:11px;padding-left:46px;font-size:15px}
+  .search-icon{left:14px;font-size:21px!important}
+  .quick-add-row{grid-template-columns:1fr;gap:10px}
+  .quick-sort-menu>summary{height:44px;border-radius:9px}
+  .quick-add-actions{width:calc(100vw - 32px);margin-inline:0;justify-content:flex-start;flex-wrap:nowrap;gap:7px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+  .quick-add-actions::-webkit-scrollbar{display:none}
+  .quick-add-actions button{height:44px;min-width:max-content;border-radius:9px;padding:0 13px;font-size:12px}
+
+  .content-scroll{padding:18px 16px calc(34px + env(safe-area-inset-bottom));overflow:visible}
+  .rail:has(.dictionary-switcher-empty-select){padding-bottom:10px;border-bottom:0}
+  .rail:has(.dictionary-switcher-empty-select) .rail-add{display:none}
+  .rail-empty-training{display:none!important}
+  .content-scroll:has(.first-run-onboarding){padding-top:42px}
+  .first-run-onboarding{min-height:auto;margin:0 auto;padding:0 0 18px}
+  .first-run-illustration{width:calc(100% + 24px);max-width:none;max-height:none;margin:0 -12px 28px;object-fit:contain}
+  .first-run-copy{gap:13px}
+  .first-run-copy h2{font-size:29px;line-height:1.14;color:#39433e;font-weight:680;letter-spacing:-.55px}
+  .first-run-copy p{max-width:330px;font-size:15px;line-height:1.55;color:#59635e}
+  .first-run-mobile-add{width:100%;height:58px;margin-top:30px;border:0;border-radius:12px;background:var(--green);display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:730;box-shadow:0 8px 20px rgba(19,102,73,.14);cursor:pointer}
+  .first-run-mobile-add:active{transform:translateY(1px);background:var(--green-dark)}
+  .first-run-add-sheet{position:fixed;z-index:120;inset:0;display:block;visibility:hidden;pointer-events:none}
+  .first-run-add-sheet.open{visibility:visible;pointer-events:auto}
+  .first-run-sheet-backdrop{position:absolute;inset:0;width:100%;height:100%;border:0;background:rgba(18,25,22,.56);display:block;opacity:0;transition:opacity .2s ease-out}
+  .first-run-add-sheet.open .first-run-sheet-backdrop{opacity:1}
+  .first-run-sheet-panel{position:absolute;left:0;right:0;bottom:0;max-height:82dvh;padding:10px 16px calc(22px + env(safe-area-inset-bottom));border-radius:24px 24px 0 0;background:#fffefa;display:block;overflow:auto;transform:translateY(100%);transition:transform .24s ease-out;box-shadow:0 -18px 50px rgba(24,38,31,.16);text-align:left}
+  .first-run-add-sheet.open .first-run-sheet-panel{transform:translateY(0)}
+  .first-run-sheet-handle{width:42px;height:5px;margin:0 auto 10px;border-radius:99px;background:#d8dbd7;display:block}
+  .first-run-sheet-header{min-height:54px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+  .first-run-sheet-header h3{margin:0;color:var(--green-dark);font-size:25px;line-height:1.2;letter-spacing:-.35px}
+  .first-run-sheet-header button{width:44px;height:44px;flex:0 0 44px;border:0;border-radius:50%;background:#e9f2ed;color:var(--green-dark);display:grid;place-items:center;cursor:pointer}
+  .first-run-sheet-header .material-symbols-outlined{font-size:25px}
+  .first-run-entry-options{width:100%;margin-top:0;grid-template-columns:1fr;gap:10px}
+  .first-run-entry-options button{min-height:76px;padding:14px 16px;border-radius:12px;column-gap:14px;row-gap:4px}
+  .first-run-option-title{font-size:14px}
+  .first-run-entry-options button small{font-size:11px}
+  .first-run-note{display:none}
+  .first-run-training-hint{width:100%;min-height:102px;margin-top:20px;padding:18px;border-radius:14px;background:#f4f7f4;display:grid;grid-template-columns:46px minmax(0,1fr);gap:13px;align-items:center;text-align:left;color:var(--ink)}
+  .first-run-training-icon{display:block;width:46px;height:46px;object-fit:contain;outline:0}
+  .first-run-training-hint>span:last-child{display:grid;gap:5px}
+  .first-run-training-hint b{font-size:13px;line-height:1.35}
+  .first-run-training-hint small{color:#6d7973;font-size:12px;line-height:1.45}
+  .empty-inline,.dictionary-empty-state{padding:64px 8px}
+
+  .word-groups{gap:24px}
+  .word-group>header{min-height:44px;margin-bottom:10px;gap:10px}
+  .word-group>header h2{font-size:17px;line-height:1.25}
+  .word-group-header-actions{gap:8px}
+  .word-group-header-actions span{font-size:11px}
+  .word-group-train{height:42px;padding-inline:12px;border-radius:9px;font-size:11px}
+  .word-table{border:0;border-radius:0;background:transparent;display:grid;gap:9px}
+  .word-row,.word-row:first-child,.word-row:last-child,.word-row:only-child{min-height:0;padding:15px;border:1px solid var(--line-soft);border-radius:13px;background:#fff;box-shadow:0 5px 16px rgba(37,43,39,.035)}
+  .word-row:not(.editing){grid-template-columns:1fr;grid-template-areas:"copy" "controls";gap:14px}
+  .word-copy{grid-template-columns:1fr;gap:5px}
+  .source-cell{justify-content:space-between;gap:10px}
+  .source-cell b{font-size:16px;line-height:1.35}
+  .source-cell .play-word{width:40px;height:40px;flex-basis:40px;margin:-8px -8px -5px 0}
+  .word-copy>strong{font-size:14px;line-height:1.45;color:#4c5550}
+  .row-controls{width:100%;justify-self:stretch;justify-content:space-between;gap:8px}
+  .status-menu{width:auto;min-width:0;flex:1 1 auto}
+  .status-menu>summary{height:42px;border-radius:9px;padding-left:12px}
+  .status-menu>div{left:0;right:auto;min-width:190px}
+  .row-actions{margin:0;gap:2px}
+  .row-actions button{width:42px;height:42px;border-radius:9px;background:#f7f8f6}
+  .word-row.editing{grid-template-columns:1fr;gap:9px}
+  .word-row.editing input,.edit-done{height:46px;border-radius:10px;font-size:14px}
+
+  .content-head{align-items:flex-start;padding-bottom:14px}
+  .practice-heading>span{padding-top:6px;font-size:11px}
+  .practice-format-row{display:grid;gap:10px;padding:12px 0 2px}
+  .practice-format-chips{width:100%;display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:3px;border-radius:11px;background:#f4f5f2;overflow:visible}
+  .practice-format-chips button{min-width:0;min-height:42px;padding:8px 6px;border-radius:8px;font-size:12px}
+  .practice-format-chips button.active{background:#fff;box-shadow:0 1px 4px rgba(24,38,31,.1)}
+  .practice-lang,.practice-lang-menu{width:100%}
+  .practice-lang-menu>summary{height:44px;width:100%;border:1px solid var(--line);border-radius:9px;padding-inline:12px 34px;justify-content:flex-start;background:#fff}
+  .practice-lang-menu>div{left:0;right:0;min-width:0}
+  .practice-body{padding-top:16px}
+  .flashcard,.type-card{min-height:280px;padding:28px 18px}
+  .flashcard{border-radius:16px}
+  .flashcard-word,.type-word{margin:22px 0 18px}
+  .flashcard-word strong,.type-word strong{font-size:clamp(38px,12vw,50px);line-height:1.02}
+  .flashcard-reveal{min-height:44px;border-radius:9px}
+  .card-actions{gap:12px;margin-top:12px}
+  .card-actions-main{grid-template-columns:1fr 1fr;gap:8px}
+  .card-actions-main button{height:50px;border-radius:11px}
+  .card-actions-skip{min-height:44px}
+  .pairs{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;padding-top:10px}
   .pairs>div{gap:8px}
-  .pairs button{min-height:56px;padding:10px 11px;font-size:12px;line-height:1.3}
+  .pairs button{min-height:58px;padding:11px 10px;border-radius:11px;font-size:12px;line-height:1.3}
   .type-practice{padding:0}
-  .type-word strong{font-size:38px}
-  .answer{grid-template-columns:1fr}
-  .import-preview-row{grid-template-columns:minmax(0,1fr) 14px minmax(0,1fr)}
-  .import-preview-meta{grid-column:1/-1;grid-template-columns:minmax(150px,220px) minmax(0,1fr);align-items:center}
+  .type-card-spacer{display:none}
+  .type-answer{margin-top:28px}
+  .answer{grid-template-columns:1fr;gap:8px}
+  .answer input,.answer .voice-input,.answer .check-answer{height:50px;min-height:50px;border-radius:11px}
+  .answer .voice-input,.answer .check-answer{justify-content:center}
+
+  .large-calendar-grid>button,.large-calendar-grid>span{min-height:46px}
+  .large-calendar-grid button b{display:none}
+  .calendar-toolbar-actions{grid-template-columns:44px 1fr 44px}
+  .calendar-toolbar-actions button{width:44px;height:44px;padding:0;overflow:hidden;text-indent:-999px;position:relative}
+  .calendar-toolbar-actions button::after{position:absolute;inset:0;display:grid;place-items:center;text-indent:0;font-family:"Material Symbols Outlined";font-size:20px}
+  .calendar-toolbar-actions button:first-child::after{content:"chevron_left"}
+  .calendar-toolbar-actions button:last-child::after{content:"chevron_right"}
+  .context-pane{grid-column:auto;display:grid;grid-template-columns:1fr;padding:16px}
+
+  .modal-backdrop{place-items:end center;padding:0;background:rgba(18,30,25,.48)}
+  .add-modal{width:100%;max-height:94dvh;margin:0;border-width:1px 0 0;border-radius:20px 20px 0 0;padding:20px 16px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -18px 55px rgba(0,0,0,.2)}
+  .add-modal:has(.add-date-picker.open),.add-modal:has(.import-menu[open]){overflow:auto}
+  .add-modal header h2{font-size:30px;line-height:1.15}
+  .close{width:44px;height:44px;margin:-7px -7px 0 0;border-radius:10px}
+  .add-modal>nav{margin:16px -16px 16px;padding:0 12px;overflow-x:auto;scrollbar-width:none}
+  .add-modal>nav::-webkit-scrollbar{display:none}
+  .add-modal>nav button{min-height:46px;padding:11px 12px;white-space:nowrap}
+  .import-settings,.import-dictionary-row,.single-fields,.dictionary-language-fields{grid-template-columns:1fr;gap:12px}
+  .new-dictionary-fields{padding:13px;border-radius:13px}
+  .dictionary-language-fields>.material-symbols-outlined{display:none}
+  .import-menu>summary,.add-date-picker .period-control,.single-pane input{height:48px}
+  .paste-pane textarea{min-height:150px}
+  .drop-zone{min-height:170px;padding:20px 12px;text-align:center}
+  .file-card-main{grid-template-columns:56px minmax(0,1fr)}
+  .file-thumb,.file-kind-badge{width:56px;height:56px}
+  .file-card-actions button{height:40px}
+  .import-preview-list{max-height:48dvh}
+  .import-preview-row{grid-template-columns:1fr;gap:7px;padding:10px}
+  .import-preview-row>i{display:none}
+  .import-preview-row input{height:44px}
+  .import-preview-meta{grid-column:auto;grid-template-columns:1fr;gap:6px}
   .import-preview-row small{text-align:left}
+
+  .clear-dictionary-modal{width:100%;border-width:1px 0 0;border-radius:20px 20px 0 0;padding:20px 16px calc(18px + env(safe-area-inset-bottom));grid-template-columns:40px minmax(0,1fr);gap:12px 14px;box-shadow:0 -18px 55px rgba(0,0,0,.2)}
+  .clear-dictionary-icon{width:40px;height:40px}
+  .clear-dictionary-actions{grid-template-columns:1fr 1fr;gap:8px}
+  .clear-dictionary-actions button{min-height:48px}
+  .clear-status{left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));justify-content:center}
+
+  button:active:not(:disabled),summary:active{transform:scale(.98)}
 }
 
 @media(max-width:390px){
-  .screen-title{align-items:flex-start}
-  .library-title-actions{display:grid;justify-items:end}
+  .rail{padding-inline:14px}
+  .main-toolbar,.content-scroll{padding-left:14px;padding-right:14px}
+  .quick-add-actions{width:calc(100vw - 28px)}
+  .screen-title h1,.screen-title h2,.content-head h2{font-size:28px}
+  .library-title-actions{display:flex;justify-items:initial}
+  .library-title-actions .clear-dictionary-button,.library-title-actions .export-menu summary{font-size:11px;padding-inline:9px}
+  .word-group>header{align-items:flex-start}
+  .word-group-header-actions{gap:6px}
+  .word-group-header-actions span{display:none}
+  .first-run-illustration{width:calc(100% + 12px);margin-inline:-6px}
+  .first-run-copy h2{font-size:28px}
+  .first-run-copy p{font-size:13px}
+  .pairs button{font-size:11.5px;padding-inline:8px}
   .clear-dictionary-actions{grid-template-columns:1fr}
-  .clear-dictionary-modal{grid-template-columns:40px minmax(0,1fr);padding:18px;gap:12px}
-  .clear-dictionary-icon{width:40px;height:40px}
-  .clear-status{left:14px;right:14px;bottom:14px;justify-content:center}
-  .search-row{grid-template-columns:1fr}
-  .search-row .primary.compact{width:100%;justify-self:stretch}
-  .quick-add-actions{display:grid;grid-template-columns:1fr}
-  .quick-add-actions button{justify-content:flex-start}
-  .first-run-entry-options{display:grid;grid-template-columns:1fr}
-  .toolbar-row{grid-template-columns:1fr}
-  .training-filters>header>span{display:none}
-  .training-filter-options{grid-template-columns:1fr}
-  .word-row:not(.editing){grid-template-columns:1fr;grid-template-areas:"copy" "controls"}
-  .row-controls{justify-self:start}
-  .add-modal{padding:16px}
-  .dictionary-language-fields{grid-template-columns:1fr;align-items:stretch}
-  .dictionary-language-fields>.material-symbols-outlined{display:none}
-  .add-modal>nav{overflow:auto}
-  .add-modal>nav button{white-space:nowrap}
-  .flashcard-word strong{font-size:38px}
+  .file-card-actions{display:grid;grid-template-columns:1fr 1fr}
+  .file-card-actions button{width:100%;padding-inline:6px}
 }

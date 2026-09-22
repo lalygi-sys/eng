@@ -37,7 +37,9 @@ test("server-renders Lingua with no default dictionary or words", async () => {
   assert.match(html, /статистика по словам/);
   assert.match(html, /Повторяйте изученное и разбирайте ошибки/);
   assert.doesNotMatch(html, /rail-progress-categories/);
-  assert.match(html, /Создавайте словари на любых языках/);
+  assert.match(html, /Добавляйте слова вручную, списком или из файла/);
+  assert.match(html, /Словами можно тренироваться/);
+  assert.match(html, /Как добавить слова\?/);
   assert.match(html, /Одно слово/);
   assert.match(html, /Группа слов/);
   assert.match(html, /Фото или файл/);
@@ -61,7 +63,9 @@ test("bulk delete is scoped, confirmed, accessible, and acknowledged", async () 
   assert.match(page, /useState<Dictionary\[]>\(\[\]\)/);
   assert.match(page, /shouldResetLegacyDemo/);
   assert.match(page, /restoredWords\?\.length === 0/);
-  assert.match(page, /Создавайте словари на любых языках/);
+  assert.match(page, /Добавляйте слова вручную, списком или из файла/);
+  assert.match(page, /Словами можно тренироваться/);
+  assert.match(page, /Как добавить слова\?/);
   assert.match(page, /className="new-dictionary-fields"/);
   assert.match(page, /className="rail-brand-row"/);
   assert.match(page, /className="account-menu"/);
@@ -121,7 +125,14 @@ test("bulk delete is scoped, confirmed, accessible, and acknowledged", async () 
   assert.match(page, /batchComplete && nextBatchStart < practiceWords\.length/);
   assert.match(css, /\.clear-dictionary-button:focus-visible/);
   assert.match(css, /\.clear-dictionary-actions button:focus-visible/);
-  assert.match(css, /\.pairs\{grid-template-columns:minmax\(0,1fr\) minmax\(0,1fr\);gap:8px\}/);
+  assert.match(css, /\.pairs\{grid-template-columns:minmax\(0,1fr\) minmax\(0,1fr\);gap:8px/);
   assert.match(css, /\.pairs button\.selected:hover:not\(:disabled\)/);
+  assert.match(css, /\.workspace\.training-mode \.rail-training-settings/);
+  assert.match(css, /\.workspace\.library-mode \.main-toolbar:not\(:has\(\.library-title-actions\)\)\{display:none\}/);
+  assert.match(css, /\.word-table\{border:0;border-radius:0;background:transparent;display:grid;gap:9px\}/);
+  assert.match(css, /\.word-row:not\(\.editing\)\{grid-template-columns:1fr;grid-template-areas:"copy" "controls"/);
+  assert.match(css, /\.practice-format-chips\{width:100%;display:grid;grid-template-columns:repeat\(3,1fr\)/);
+  assert.match(css, /\.add-modal\{width:100%;max-height:94dvh/);
+  assert.match(css, /env\(safe-area-inset-bottom\)/);
   assert.match(css, /@media\(max-width:390px\)/);
 });

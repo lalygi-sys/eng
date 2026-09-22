@@ -1406,7 +1406,8 @@ export default function Home() {
           </div>
         </details> : <details className="dictionary-switcher dictionary-switcher-empty-select">
           <summary aria-label="Словари не созданы">
-            <span>Нет созданных словарей</span>
+            <span className="dictionary-empty-label dictionary-empty-label-desktop">Нет созданных словарей</span>
+            <span className="dictionary-empty-label dictionary-empty-label-mobile">Нет словарей</span>
             <i className="material-symbols-outlined" aria-hidden="true">keyboard_arrow_down</i>
           </summary>
           <div className="dictionary-switcher-menu" role="menu" aria-label="Действия со словарями">
@@ -2024,33 +2025,58 @@ function LibraryView({ words, editId, setEditId, updateWord, setWords, speak, on
 }
 
 function LibraryEmptyState({ hasDictionary, hasWords, query, hasDictionaryMatch, similarWords, onSelectSuggestion, onCreateSingle, onCreatePaste, onCreateFile, onAddSingle, onUpload, onReset }: { hasDictionary: boolean; hasWords: boolean; query: string; hasDictionaryMatch: boolean; similarWords: Word[]; onSelectSuggestion: (word: Word) => void; onCreateSingle: () => void; onCreatePaste: () => void; onCreateFile: () => void; onAddSingle: () => void; onUpload: () => void; onReset: () => void }) {
+  const [addWaysOpen, setAddWaysOpen] = useState(false);
+  useEffect(() => {
+    if (!addWaysOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => event.key === "Escape" && setAddWaysOpen(false);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [addWaysOpen]);
+
+  const chooseAddWay = (action: () => void) => {
+    setAddWaysOpen(false);
+    action();
+  };
+
   if (!hasDictionary) return <section className="first-run-onboarding" aria-label="Создание первого словаря">
     <img className="first-run-illustration" src="./main-zero-state.png?v=6" alt="" />
     <div className="first-run-copy">
       <h2>Добавьте первые слова</h2>
-              <p>
-                Создавайте словари на любых языках и добавляйте слова удобным способом. Для тренировок выбирайте слова
-                по дате и результатам.
-      </p>
+      <p>Добавляйте слова вручную, списком или из файла — и переходите к тренировкам.</p>
     </div>
-    <div className="first-run-entry-options" aria-label="Способ добавления первых слов">
-      <button type="button" onClick={onCreateSingle}>
-        <span className="material-symbols-outlined first-run-option-icon" aria-hidden="true">stylus_note</span>
-        <span className="first-run-option-title"><b>Одно слово</b></span>
-        <small>Ввести вручную</small>
-      </button>
-      <button type="button" onClick={onCreatePaste}>
-        <span className="material-symbols-outlined first-run-option-icon" aria-hidden="true">list_alt_add</span>
-        <span className="first-run-option-title"><b>Группа слов</b></span>
-        <small>Вставить списком</small>
-      </button>
-      <button type="button" onClick={onCreateFile}>
-        <span className="material-symbols-outlined first-run-option-icon" aria-hidden="true">add_photo_alternate</span>
-        <span className="first-run-option-title"><b>Фото или файл</b></span>
-        <small>Фото, PDF, DOCX, TXT, CSV</small>
-      </button>
+    <button type="button" className="first-run-mobile-add" aria-haspopup="dialog" aria-expanded={addWaysOpen} onClick={() => setAddWaysOpen(true)}>Добавить слова</button>
+    <div className={`first-run-add-sheet ${addWaysOpen ? "open" : ""}`} aria-hidden={!addWaysOpen}>
+      <button type="button" className="first-run-sheet-backdrop" tabIndex={addWaysOpen ? 0 : -1} aria-label="Закрыть выбор способа добавления" onClick={() => setAddWaysOpen(false)} />
+      <section className="first-run-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="first-run-sheet-title">
+        <span className="first-run-sheet-handle" aria-hidden="true" />
+        <header className="first-run-sheet-header">
+          <h3 id="first-run-sheet-title">Как добавить слова?</h3>
+          <button type="button" aria-label="Закрыть" onClick={() => setAddWaysOpen(false)}><span className="material-symbols-outlined" aria-hidden="true">close</span></button>
+        </header>
+        <div className="first-run-entry-options" aria-label="Способ добавления первых слов">
+          <button type="button" onClick={() => chooseAddWay(onCreateSingle)}>
+            <span className="material-symbols-outlined first-run-option-icon" aria-hidden="true">stylus_note</span>
+            <span className="first-run-option-title"><b>Одно слово</b></span>
+            <small>Ввести вручную</small>
+          </button>
+          <button type="button" onClick={() => chooseAddWay(onCreatePaste)}>
+            <span className="material-symbols-outlined first-run-option-icon" aria-hidden="true">list_alt_add</span>
+            <span className="first-run-option-title"><b>Группа слов</b></span>
+            <small>Вставить списком</small>
+          </button>
+          <button type="button" onClick={() => chooseAddWay(onCreateFile)}>
+            <span className="material-symbols-outlined first-run-option-icon" aria-hidden="true">add_photo_alternate</span>
+            <span className="first-run-option-title"><b>Фото или файл</b></span>
+            <small>Фото, PDF, DOCX, TXT, CSV</small>
+          </button>
+        </div>
+      </section>
     </div>
     <p className="first-run-note">Языки и дату можно выбрать перед сохранением.</p>
+    <aside className="first-run-training-hint">
+      <img className="first-run-training-icon" src="/training-cards-icon.png" alt="" aria-hidden="true" />
+      <span><b>Словами можно тренироваться</b><small>После добавления слов станут доступны упражнения.</small></span>
+    </aside>
   </section>;
   if (!hasWords) return <div className="empty-inline dictionary-empty-state">
     <p className="empty-kicker">СЛОВАРЬ ПУСТ</p>
